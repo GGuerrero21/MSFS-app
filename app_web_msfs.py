@@ -141,22 +141,17 @@ def obtener_coords(icao):
     return AIRPORT_COORDS.get(icao, None)
 
 def obtener_clima(icao_code):
-    """Obtiene METAR y TAF."""
     if not icao_code or len(icao_code) != 4:
         return None, "❌ ICAO inválido."
-        
     base_url = "https://tgftp.nws.noaa.gov/data/observations/metar/stations"
     taf_url = "https://tgftp.nws.noaa.gov/data/forecasts/taf/stations"
-    
     headers = {'User-Agent': 'MSFS2020-App/1.0'}
     
-    # METAR
     try:
         r_metar = requests.get(f"{base_url}/{icao_code.upper()}.TXT", headers=headers, timeout=5)
         raw_metar = r_metar.text.strip().split('\n')[1] if r_metar.status_code == 200 else "No disponible"
     except: raw_metar = "Error conexión"
 
-    # TAF
     try:
         r_taf = requests.get(f"{taf_url}/{icao_code.upper()}.TXT", headers=headers, timeout=5)
         raw_taf = "\n".join(r_taf.text.strip().split('\n')[1:]) if r_taf.status_code == 200 else "No disponible"
@@ -164,7 +159,6 @@ def obtener_clima(icao_code):
     
     if raw_metar == "No disponible" and raw_taf == "No disponible":
         return None, "❌ No se encontraron datos para esa estación."
-        
     return (raw_metar, raw_taf), None
 
 # --- 3. INTERFAZ GRÁFICA ---
@@ -266,27 +260,88 @@ def main_app():
             st_folium(m, width=1000, height=500)
         else: st.info("Sin vuelos registrados.")
 
-    # 4. CLIMA (METAR/TAF)
+    # 4. CLIMA (CON GUÍA INTEGRADA)
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico")
-        c_search, c_res = st.columns([1, 2])
-        icao = c_search.text_input("ICAO", max_chars=4).upper()
-        if c_search.button("Buscar") and icao:
-            datos, err = obtener_clima(icao)
-            if datos:
-                metar, taf = datos
-                st.subheader(f"Reporte: {icao}")
-                st.info(f"**METAR (Actual):**\n`{metar}`")
-                st.warning(f"**TAF (Pronóstico):**\n`{taf}`")
-            else: st.error(err)
         
-        st.markdown("---")
-        st.caption("Guía Rápida: KT=Nudos | RA=Lluvia | FG=Niebla | FEW/SCT/BKN/OVC=Nubes | Q1013=Presión")
+        # PESTAÑAS PARA ORDENAR
+        tab1, tab2 = st.tabs(["🔍 Buscar Clima", "📖 Escuela Meteorológica (Guía Completa)"])
+        
+        with tab1:
+            st.subheader("Búsqueda Rápida")
+            # Usamos form para que al apretar ENTER se ejecute
+            with st.form("metar_search"):
+                col_s1, col_s2 = st.columns([3,1])
+                icao = col_s1.text_input("Código ICAO (ej: KJFK)", max_chars=4).upper()
+                btn_buscar = col_s2.form_submit_button("Buscar 🔎")
+                
+                if btn_buscar and icao:
+                    datos, err = obtener_clima(icao)
+                    if datos:
+                        metar, taf = datos
+                        st.success(f"Reporte encontrado para **{icao}**")
+                        st.info(f"**METAR (Actual):**\n`{metar}`")
+                        st.warning(f"**TAF (Pronóstico):**\n`{taf}`")
+                    else: st.error(err)
 
-    # 5. HERRAMIENTAS (NUEVO)
+        with tab2:
+            st.subheader("🎓 Cómo leer un reporte como un profesional")
+            
+            st.markdown("""
+            ### 1. Ejemplo Desglosado: `SCEL 091400Z 18010KT 9999 SCT030 18/12 Q1016`
+            
+            * **SCEL:** Lugar (Santiago).
+            * **091400Z:** Día 09, Hora 14:00 **Zulu** (UTC).
+            * **18010KT:** Viento viene de **180°** (Sur) a **10 Nudos**. (`VRB` = Variable, `G` = Ráfagas).
+            * **9999:** Visibilidad de 10 km o más (Perfecta).
+            * **SCT030:** Nubes Dispersas (Scattered) a **3.000 pies** (030 x 100).
+            * **18/12:** Temperatura 18°C, Punto de Rocío 12°C.
+            * **Q1016:** Presión Barométrica (QNH) 1016 hPa.
+            """)
+            
+            st.divider()
+            
+            c_g1, c_g2 = st.columns(2)
+            with c_g1:
+                st.markdown("**☁️ COBERTURA DE NUBES**")
+                st.markdown("""
+                | Código | Significado | Cobertura |
+                | :--- | :--- | :--- |
+                | **FEW** | Escasas | 1-2 octavas |
+                | **SCT** | Dispersas | 3-4 octavas |
+                | **BKN** | Fragmentadas | 5-7 octavas (Techo) |
+                | **OVC** | Cubierto | 8 octavas (Techo) |
+                | **NSC** | Sin Nubes | Despejado |
+                """)
+                
+                st.markdown("**🌡️ TIEMPO PRESENTE**")
+                st.markdown("""
+                * **RA:** Lluvia (Rain)
+                * **SN:** Nieve (Snow)
+                * **TS:** Tormenta (Thunderstorm)
+                * **FG:** Niebla (Fog)
+                * **HZ:** Bruma (Haze)
+                * **- / +:** Ligero / Fuerte (ej: `+RA`)
+                """)
+
+            with c_g2:
+                st.markdown("**🔮 PRONÓSTICO (TAF)**")
+                st.markdown("""
+                El TAF te dice qué pasará en el futuro. Busca estas claves:
+                
+                * **BECMG (Becoming):** Cambio gradual y permanente.
+                    * *Ej: `BECMG 1012/1014` (Cambia entre las 12 y 14Z).*
+                * **TEMPO:** Cambio temporal, luego vuelve a la normalidad.
+                    * *Ej: `TEMPO 3000 RA` (Lloverá por ratos).*
+                * **FM (From):** Cambio rápido a partir de una hora exacta.
+                * **PROB30/40:** Probabilidad de que ocurra (30% o 40%).
+                """)
+                
+                st.info("💡 **Tip:** Si Temp y Rocío son iguales (ej: `10/10`), ¡habrá niebla!")
+
+    # 5. HERRAMIENTAS
     elif menu == "🧰 Herramientas":
         st.header("🧰 Herramientas de Vuelo")
-        
         t1, t2 = st.tabs(["📉 Calc. Descenso (TOD)", "🔄 Conversor Unidades"])
         
         with t1:
@@ -307,7 +362,6 @@ def main_app():
             kg = cc1.number_input("Kilogramos (kg)", value=0)
             lbs = cc1.number_input("Libras (lbs)", value=kg * 2.20462)
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
-            
             st.markdown("---")
             hpa = cc2.number_input("Hectopascales (hPa/mb)", value=1013)
             inhg = cc2.number_input("Pulgadas Hg (inHg)", value=hpa * 0.02953)
