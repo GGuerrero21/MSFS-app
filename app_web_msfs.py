@@ -13,31 +13,48 @@ from datetime import datetime, timedelta
 
 # --- 1. CONFIGURACIÓN Y DATOS ---
 
-# Mapeo de Estilos de Aerolíneas (Colores Reales y Código IATA para Logos)
+# BASE DE DATOS DE ESTILOS DE AEROLÍNEAS (Expandida)
 AIRLINE_STYLES = {
+    # LATAM / SUDAMÉRICA
     "LAN": {"color": "#181373", "iata": "LA", "name": "LATAM Airlines"},
-    "LPE": {"color": "#181373", "iata": "LA", "name": "LATAM Perú"},
+    "LPE": {"color": "#181373", "iata": "LA", "name": "LATAM Peru"},
+    "TAM": {"color": "#DA291C", "iata": "JJ", "name": "LATAM Brasil"},
     "AVA": {"color": "#DA291C", "iata": "AV", "name": "Avianca"},
-    "AMX": {"color": "#002A54", "iata": "AM", "name": "Aeroméxico"},
-    "IBE": {"color": "#D7192D", "iata": "IB", "name": "Iberia"},
-    "AAL": {"color": "#0078D2", "iata": "AA", "name": "American Airlines"},
+    "ARG": {"color": "#00A3E0", "iata": "AR", "name": "Aerolineas Arg."},
+    "SKU": {"color": "#8800CC", "iata": "H2", "name": "Sky Airline"},
+    "JAT": {"color": "#363636", "iata": "JA", "name": "JetSmart"},
+    "CMP": {"color": "#003263", "iata": "CM", "name": "Copa Airlines"},
+    "AMX": {"color": "#002A54", "iata": "AM", "name": "Aeromexico"},
+    "VOI": {"color": "#000000", "iata": "Y4", "name": "Volaris"},
+    
+    # NORTEAMÉRICA
+    "AAL": {"color": "#0078D2", "iata": "AA", "name": "American"},
     "DAL": {"color": "#E31837", "iata": "DL", "name": "Delta"},
     "UAL": {"color": "#005DAA", "iata": "UA", "name": "United"},
+    "ACA": {"color": "#E31837", "iata": "AC", "name": "Air Canada"},
+    "JBU": {"color": "#0033A0", "iata": "B6", "name": "JetBlue"},
+    
+    # EUROPA
+    "IBE": {"color": "#D7192D", "iata": "IB", "name": "Iberia"},
+    "AEA": {"color": "#002F6C", "iata": "UX", "name": "Air Europa"},
     "BAW": {"color": "#00247D", "iata": "BA", "name": "British Airways"},
     "AFR": {"color": "#002157", "iata": "AF", "name": "Air France"},
     "KLM": {"color": "#00A1DE", "iata": "KL", "name": "KLM"},
-    "Lufthansa": {"color": "#05164D", "iata": "LH", "name": "Lufthansa"}, # A veces SimBrief da nombres
     "DLH": {"color": "#05164D", "iata": "LH", "name": "Lufthansa"},
-    "CMP": {"color": "#003263", "iata": "CM", "name": "Copa Airlines"},
-    "UAE": {"color": "#D71921", "iata": "EK", "name": "Emirates"},
-    "QFA": {"color": "#E40000", "iata": "QF", "name": "Qantas"},
-    "JAL": {"color": "#CC0000", "iata": "JL", "name": "Japan Airlines"},
-    "ARG": {"color": "#00A3E0", "iata": "AR", "name": "Aerolíneas Arg."},
-    "VLG": {"color": "#FFCC00", "iata": "VY", "name": "Vueling", "text_color": "black"},
     "RYR": {"color": "#0D1E50", "iata": "FR", "name": "Ryanair"},
     "EZY": {"color": "#FF6600", "iata": "U2", "name": "easyJet"},
-    "SKU": {"color": "#8800CC", "iata": "H2", "name": "Sky Airline"},
-    "JAT": {"color": "#363636", "iata": "JA", "name": "JetSmart"},
+    "VLG": {"color": "#FFCC00", "iata": "VY", "name": "Vueling", "text_color": "black"},
+    "SWR": {"color": "#FF0000", "iata": "LX", "name": "Swiss"},
+    
+    # ASIA / OCEANÍA / MEDIO ORIENTE
+    "ANZ": {"color": "#000000", "iata": "NZ", "name": "Air New Zealand"}, # ¡Agregada!
+    "QFA": {"color": "#E40000", "iata": "QF", "name": "Qantas"},
+    "UAE": {"color": "#D71921", "iata": "EK", "name": "Emirates"},
+    "QTR": {"color": "#5C0632", "iata": "QR", "name": "Qatar Airways"},
+    "JAL": {"color": "#CC0000", "iata": "JL", "name": "Japan Airlines"},
+    "ANA": {"color": "#002A54", "iata": "NH", "name": "ANA"},
+    "SIA": {"color": "#FDB913", "iata": "SQ", "name": "Singapore Air"},
+    "CPA": {"color": "#006B6E", "iata": "CX", "name": "Cathay Pacific"},
 }
 
 AIRPORT_COORDS = {
@@ -46,7 +63,8 @@ AIRPORT_COORDS = {
     "MMMX": [19.4363, -99.0721], "KMIA": [25.7959, -80.2870], "KLAX": [33.9416, -118.4085],
     "EHAM": [52.3105, 4.7683], "LFPG": [49.0097, 2.5479], "OMDB": [25.2532, 55.3657],
     "RJAA": [35.7719, 140.3928], "YSSY": [-33.9399, 151.1753], "SBGR": [-23.4356, -46.4731],
-    "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021]
+    "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021],
+    "NZAA": [-37.0082, 174.7950], "NTAA": [-17.5536, -149.6070] 
 }
 
 AEROLINEAS_BASE = [
@@ -150,12 +168,12 @@ def obtener_datos_simbrief(username):
             times = data.get('times', {})
             est_time = int(times.get('est_block', 0)) / 3600
             
-            # Hora estimada salida (simulada o real si el OFP la tiene)
+            # Hora estimada salida
             dep_time = datetime.utcfromtimestamp(int(times.get('sched_out', 0))).strftime('%H:%M') if times.get('sched_out') else "12:00"
 
             return {
                 "origen": origin, "destino": destination, "no_vuelo": flight_no,
-                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', ''),
+                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', 'UNK'),
                 "puerta_salida": gate_out, "puerta_llegada": gate_in,
                 "hora_salida": dep_time,
                 "fecha": datetime.now().strftime("%d %b %Y").upper()
@@ -201,27 +219,25 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
     headwind = math.cos(theta) * wind_spd
     return crosswind, headwind
 
-# --- GENERADOR DE BOARDING PASS ---
+# --- GENERADOR DE BOARDING PASS (CORREGIDO) ---
 def generar_boarding_pass_img(data):
-    # Dimensiones
     W, H = 600, 250
     
     # Obtener estilo aerolínea
     icao = data.get('aerolinea_icao', 'UNK')
-    estilo = AIRLINE_STYLES.get(icao, {"color": "#333333", "iata": "", "name": "AEROLÍNEA"})
+    estilo = AIRLINE_STYLES.get(icao, {"color": "#333333", "iata": "", "name": "AEROLINEA"})
     
     bg_color = "white"
     primary_color = estilo["color"]
     text_color_header = estilo.get("text_color", "white")
 
-    # Crear Imagen Base
     img = Image.new('RGB', (W, H), color=bg_color)
     draw = ImageDraw.Draw(img)
 
-    # 1. Cabecera (Color Aerolínea)
+    # 1. Cabecera
     draw.rectangle([(0, 0), (W, 60)], fill=primary_color)
     
-    # Fuente (Usamos por defecto si no hay ttf)
+    # Intento de cargar fuentes o usar default
     try:
         font_lg = ImageFont.truetype("arial.ttf", 36)
         font_md = ImageFont.truetype("arial.ttf", 24)
@@ -234,31 +250,35 @@ def generar_boarding_pass_img(data):
         font_xs = ImageFont.load_default()
 
     # 2. Logo / Nombre
-    # Intentar descargar logo pequeño si tenemos IATA
     logo_exito = False
+    
+    # Intento 1: Logo por IATA
     if estilo["iata"]:
         try:
             url_logo = f"https://www.gstatic.com/flights/airline_logos/70px/{estilo['iata']}.png"
-            response = requests.get(url_logo)
+            response = requests.get(url_logo, timeout=2)
             if response.status_code == 200:
                 logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-                # Redimensionar manteniendo aspecto
                 logo_img.thumbnail((50, 50))
                 img.paste(logo_img, (15, 5), logo_img)
                 draw.text((80, 15), estilo["name"], font=font_md, fill=text_color_header)
                 logo_exito = True
         except: pass
-    
+
+    # Fallback si no hay logo
     if not logo_exito:
         draw.text((20, 15), estilo["name"], font=font_md, fill=text_color_header)
     
     draw.text((W - 150, 20), "BOARDING PASS", font=font_sm, fill=text_color_header)
 
     # 3. Cuerpo del Pase
-    # Fila 1: Origen -> Destino
+    # Fila 1: Origen -> Destino (SIN EMOJIS para evitar cuadros)
     draw.text((30, 80), data['origen'], font=font_lg, fill="black")
-    draw.text((150, 95), "✈", font=font_md, fill=primary_color)
-    draw.text((200, 80), data['destino'], font=font_lg, fill="black")
+    
+    # Flecha simple en vez de avión para compatibilidad
+    draw.text((150, 90), "---->", font=font_sm, fill=primary_color)
+    
+    draw.text((220, 80), data['destino'], font=font_lg, fill="black")
     
     # Datos Derecha (Vuelo)
     draw.text((400, 80), "VUELO", font=font_xs, fill="gray")
@@ -267,27 +287,23 @@ def generar_boarding_pass_img(data):
     # Fila 2: Detalles
     y_row2 = 150
     
-    # Hora
     draw.text((30, y_row2), "HORA", font=font_xs, fill="gray")
     draw.text((30, y_row2+15), data.get('hora_salida', '12:00'), font=font_md, fill="black")
     
-    # Puerta
     draw.text((150, y_row2), "PUERTA", font=font_xs, fill="gray")
     gate = data.get('puerta_salida', 'TBD')
     draw.text((150, y_row2+15), gate if gate else "---", font=font_md, fill=primary_color)
     
-    # Asiento (Random si no existe)
     asiento = f"{random.randint(1,30)}{random.choice(['A','B','C','D','E','F'])}"
     draw.text((250, y_row2), "ASIENTO", font=font_xs, fill="gray")
     draw.text((250, y_row2+15), asiento, font=font_md, fill="black")
     
-    # Fecha
     draw.text((400, y_row2), "FECHA", font=font_xs, fill="gray")
     draw.text((400, y_row2+15), data.get('fecha', 'HOY'), font=font_sm, fill="black")
 
     # 4. Footer (Barcode Falso)
     draw.rectangle([(0, 210), (W, 250)], fill="#eeeeee")
-    draw.rectangle([(20, 220), (W-20, 240)], fill="black") # Simula código de barras
+    draw.rectangle([(20, 220), (W-20, 240)], fill="black")
 
     return img
 
@@ -316,7 +332,6 @@ def main_app():
         if 'form_data' not in st.session_state:
             st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "tiempo": 0.0, "puerta_salida": "", "puerta_llegada": ""}
         
-        # VARIABLE PARA MOSTRAR BOARDING PASS
         if 'boarding_pass_img' not in st.session_state:
             st.session_state.boarding_pass_img = None
 
@@ -328,13 +343,11 @@ def main_app():
                 if datos:
                     st.session_state.form_data.update(datos)
                     st.session_state.form_data["tiempo"] = datos["tiempo_est"]
-                    # GENERAR TARJETA
                     img = generar_boarding_pass_img(datos)
                     st.session_state.boarding_pass_img = img
                     st.success("¡Datos cargados y Tarjeta Generada!")
                 else: st.error(err)
 
-        # MOSTRAR TARJETA SI EXISTE
         if st.session_state.boarding_pass_img:
             st.image(st.session_state.boarding_pass_img, caption="Tarjeta de Embarque Digital", use_column_width=False, width=600)
 
