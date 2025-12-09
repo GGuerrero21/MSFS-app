@@ -9,7 +9,7 @@ import math
 from streamlit_folium import st_folium
 from datetime import datetime, timedelta
 
-# --- 1. BASES DE DATOS Y CONFIGURACIÓN ---
+# --- 1. CONFIGURACIÓN Y DATOS ---
 
 AIRPORT_COORDS = {
     "KJFK": [40.6413, -73.7781], "EGLL": [51.4700, -0.4543], "SCEL": [-33.3930, -70.7858],
@@ -17,10 +17,9 @@ AIRPORT_COORDS = {
     "MMMX": [19.4363, -99.0721], "KMIA": [25.7959, -80.2870], "KLAX": [33.9416, -118.4085],
     "EHAM": [52.3105, 4.7683], "LFPG": [49.0097, 2.5479], "OMDB": [25.2532, 55.3657],
     "RJAA": [35.7719, 140.3928], "YSSY": [-33.9399, 151.1753], "SBGR": [-23.4356, -46.4731],
-    "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021]
+    "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021],
+    "NZAA": [-37.0082, 174.7950], "NTAA": [-17.5536, -149.6070] 
 }
-
-# --- LISTAS DEFINITIVAS ---
 
 AEROLINEAS_BASE = [
     "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
@@ -74,13 +73,12 @@ CHECKLISTS_DB = {
 }
 
 NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
-# NUEVO CAMPO AGREGADO: Landing_Rate_FPM
 ENCABEZADOS_CSV = [
     "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
     "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta_Salida", "Puerta_Llegada", "Landing_Rate_FPM", "Notas"
 ]
 
-# --- 2. FUNCIONES DE LÓGICA ---
+# --- 2. FUNCIONES LÓGICAS ---
 
 def crear_archivo_csv():
     try:
@@ -119,15 +117,20 @@ def obtener_datos_simbrief(username):
             destination = dest_data.get('icao_code', '')
             flight_no = f"{general.get('icao_airline', '')}{general.get('flight_number', '')}"
             route = general.get('route', '')
-            gate_out = origin_data.get('gate', '')
-            gate_in = dest_data.get('gate', '')
+            gate_out = origin_data.get('gate', 'TBD')
+            gate_in = dest_data.get('gate', 'TBD')
             times = data.get('times', {})
             est_time = int(times.get('est_block', 0)) / 3600
             
+            # Hora estimada salida
+            dep_time = datetime.utcfromtimestamp(int(times.get('sched_out', 0))).strftime('%H:%M') if times.get('sched_out') else "12:00"
+
             return {
                 "origen": origin, "destino": destination, "no_vuelo": flight_no,
-                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', ''),
-                "puerta_salida": gate_out, "puerta_llegada": gate_in
+                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', 'UNK'),
+                "puerta_salida": gate_out, "puerta_llegada": gate_in,
+                "hora_salida": dep_time,
+                "fecha": datetime.now().strftime("%d %b %Y").upper()
             }, None
         else: return None, "Error al conectar con SimBrief."
     except Exception as e: return None, f"Excepción: {e}"
@@ -160,19 +163,14 @@ def obtener_clima(icao_code):
     except: raw_taf = "Error conexión"
     
     if raw_metar == "No disponible" and raw_taf == "No disponible":
-        return None, "❌ No se encontraron datos para esa estación."
+        return None, "❌ No se encontraron datos."
     return (raw_metar, raw_taf), None
 
-# NUEVA LÓGICA: VIENTO CRUZADO
 def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
-    # Convertir a radianes
     diff = abs(wind_dir - rwy_heading)
     theta = math.radians(diff)
-    
-    # Cálculos
     crosswind = abs(math.sin(theta) * wind_spd)
     headwind = math.cos(theta) * wind_spd
-    
     return crosswind, headwind
 
 # --- 3. INTERFAZ GRÁFICA ---
@@ -194,21 +192,21 @@ def main_app():
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", ["📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa", "☁️ Clima (METAR/TAF)", "🧰 Herramientas", "📊 Estadísticas"])
 
-    # 1. REGISTRO (CON LANDING RATE)
+    # 1. REGISTRO (Sin Boarding Pass)
     if menu == "📋 Registro de Vuelo":
         st.header("📋 Registrar Vuelo / SimBrief")
         if 'form_data' not in st.session_state:
             st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "tiempo": 0.0, "puerta_salida": "", "puerta_llegada": ""}
 
-        with st.expander("📥 Importar SimBrief", expanded=True):
+        with st.expander("📥 Importar desde SimBrief", expanded=True):
             c1, c2 = st.columns([3, 1])
             sb_user = c1.text_input("Usuario SimBrief")
-            if c2.button("Importar"):
+            if c2.button("Importar OFP"):
                 datos, err = obtener_datos_simbrief(sb_user)
                 if datos:
                     st.session_state.form_data.update(datos)
                     st.session_state.form_data["tiempo"] = datos["tiempo_est"]
-                    st.success("Cargado.")
+                    st.success("¡Datos del plan de vuelo cargados!")
                 else: st.error(err)
 
         with st.form("vuelo"):
@@ -227,23 +225,18 @@ def main_app():
                 if st.checkbox("¿Nueva Aerolínea?"): aero = st.text_input("Nombre")
                 else: aero = st.selectbox("Aerolínea", lista_aero)
                 num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
-                
-                # SECCIÓN PUERTAS
                 g1, g2 = st.columns(2)
                 p_out = g1.text_input("Gate Salida", value=st.session_state.form_data["puerta_salida"])
                 p_in = g2.text_input("Gate Llegada", value=st.session_state.form_data["puerta_llegada"])
             
-            # NUEVO CAMPO: LANDING RATE
             st.markdown("---")
             col_lrate, col_ruta = st.columns([1, 3])
-            l_rate = col_lrate.number_input("Landing Rate (fpm)", value=0, step=10, help="Ej: -150 para un toque suave")
+            l_rate = col_lrate.number_input("Landing Rate (fpm)", value=0, step=10)
             ruta = col_ruta.text_area("Ruta", value=st.session_state.form_data["ruta"], height=100)
-            
             notas = st.text_area("Notas")
             
             if st.form_submit_button("Guardar Vuelo 💾"):
                 if tiempo > 0 and origen and destino:
-                    # AGREGAMOS l_rate AL CSV
                     row = [fecha, origen, destino, ruta, aero, num, modelo, h_out, h_in, f"{tiempo:.2f}", 0, p_out, p_in, l_rate, notas]
                     with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f: csv.writer(f).writerow(row)
                     st.success("Registrado!")
@@ -282,10 +275,10 @@ def main_app():
             st_folium(m, width=1000, height=500)
         else: st.info("Sin vuelos registrados.")
 
-    # 4. CLIMA
+    # 4. CLIMA (CON GUÍA COMPLETA)
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico")
-        tab1, tab2 = st.tabs(["🔍 Buscar Clima", "📖 Escuela Meteorológica"])
+        tab1, tab2 = st.tabs(["🔍 Buscar Clima", "🎓 Escuela Meteorológica (Guía Completa)"])
         
         with tab1:
             with st.form("metar_search"):
@@ -300,73 +293,121 @@ def main_app():
                         st.info(f"**METAR:**\n`{metar}`")
                         st.warning(f"**TAF:**\n`{taf}`")
                     else: st.error(err)
-
+        
         with tab2:
-            st.markdown("""
-            ### Guía Rápida METAR
-            * **SCEL 091400Z:** Lugar y Hora Zulú.
-            * **18010KT:** Viento 180° a 10 nudos (`G`=Ráfagas).
-            * **9999:** Visibilidad +10km.
-            * **SCT030:** Nubes dispersas a 3000 pies.
-            * **Q1016:** Presión 1016 hPa.
-            """)
+            st.title("🎓 Guía Definitiva de Lectura METAR/TAF")
+            
+            with st.expander("1. Estructura Básica (Ejemplo)", expanded=True):
+                st.markdown("""
+                **Ejemplo:** `SCEL 091400Z 18010KT 9999 SCT030 18/12 Q1016`
+                
+                1.  **Lugar:** `SCEL` (Santiago, Chile).
+                2.  **Fecha/Hora:** `091400Z` -> Día 09, 14:00 Hora Zulú (UTC).
+                3.  **Viento:** `18010KT` -> Dirección 180° a 10 Nudos.
+                4.  **Visibilidad:** `9999` -> Más de 10 kilómetros (OK).
+                5.  **Nubes:** `SCT030` -> Nubes dispersas a 3000 pies.
+                6.  **Temp:** `18/12` -> 18°C temperatura, 12°C punto de rocío.
+                7.  **Presión:** `Q1016` -> 1016 hectopascales.
+                """)
+            
+            with st.expander("2. Fenómenos Meteorológicos (Lluvia, Niebla...)"):
+                st.write("Estos códigos aparecen después de la visibilidad si hay mal tiempo.")
+                cols = st.columns(3)
+                with cols[0]:
+                    st.markdown("**Precipitación**")
+                    st.markdown("""
+                    * `RA`: Lluvia (Rain)
+                    * `SN`: Nieve (Snow)
+                    * `GR`: Granizo
+                    * `DZ`: Llovizna (Drizzle)
+                    """)
+                with cols[1]:
+                    st.markdown("**Oscurecimiento**")
+                    st.markdown("""
+                    * `FG`: Niebla (Fog) < 1km
+                    * `BR`: Neblina (Mist) 1-5km
+                    * `HZ`: Bruma (Haze)
+                    * `FU`: Humo
+                    """)
+                with cols[2]:
+                    st.markdown("**Intensidad / Otros**")
+                    st.markdown("""
+                    * `-`: Ligero (ej: `-RA`)
+                    * `+`: Fuerte (ej: `+RA`)
+                    * `TS`: Tormenta (Thunderstorm)
+                    * `VC`: En vecindad (cerca)
+                    """)
 
-    # 5. HERRAMIENTAS (CON VIENTO CRUZADO)
+            with st.expander("3. Cobertura de Nubes y Techo"):
+                st.info("⚠️ **Dato Importante:** Se considera 'Techo de Nubes' (Ceiling) a partir de BKN. Si dice FEW o SCT, técnicamente no hay techo.")
+                st.markdown("""
+                | Código | Significado | Cantidad de Cielo Cubierto |
+                | :--- | :--- | :--- |
+                | **FEW** | Escasas | 1/8 a 2/8 |
+                | **SCT** | Dispersas | 3/8 a 4/8 |
+                | **BKN** | Fragmentadas (Ceiling) | 5/8 a 7/8 |
+                | **OVC** | Cubierto (Ceiling) | 8/8 (Cielo tapado) |
+                | **NSC / SKC** | Sin Nubes | Cielo despejado |
+                | **VV** | Visibilidad Vertical | Indefinido (Niebla total) |
+                """)
+                st.caption("Los números siempre indican altura en cientos de pies. `030` = 3000 pies.")
+
+            with st.expander("4. Pronósticos (TAF): BECMG, TEMPO, FM"):
+                st.write("El TAF te dice qué va a pasar en el futuro. Estas son las palabras clave:")
+                st.markdown("""
+                * **BECMG (Becoming):** Cambio **gradual y permanente**.
+                    * *Ej: `BECMG 1012/1014` -> Entre las 12 y las 14Z el clima cambiará y se quedará así.*
+                * **TEMPO (Temporary):** Cambio **temporal**.
+                    * *Ej: `TEMPO 1820 TSRA` -> Entre las 18 y 20Z habrá tormentas por momentos, pero luego volverá a lo normal.*
+                * **FM (From):** Cambio **rápido y total** a partir de una hora.
+                    * *Ej: `FM120000` -> A partir de las 12:00 en punto, el clima será este...*
+                * **PROB30 / PROB40:** Probabilidad del 30% o 40% de que ocurra algo.
+                """)
+
+            with st.expander("5. Códigos Especiales (CAVOK, VRB)"):
+                st.markdown("""
+                * **CAVOK (Ceiling And Visibility OK):** Condiciones ideales. Visibilidad >10km, sin nubes por debajo de 5000ft, sin lluvias.
+                * **VRB (Variable):** El viento cambia de dirección constantemente (generalmente cuando es suave, menos de 5kt).
+                * **G (Gusts):** Ráfagas. Ej: `24015G25KT` (Viento 15 nudos, ráfagas de 25).
+                * **NSW (No Significant Weather):** El mal tiempo ha terminado.
+                """)
+
+    # 5. HERRAMIENTAS
     elif menu == "🧰 Herramientas":
         st.header("🧰 Herramientas de Vuelo")
         t1, t2, t3 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor"])
-        
-        # TAB 1: VIENTO CRUZADO
         with t1:
             st.subheader("Calculadora de Viento Cruzado")
             wc1, wc2, wc3 = st.columns(3)
             wd = wc1.number_input("Dirección Viento (°)", 0, 360, 0)
             ws = wc2.number_input("Velocidad Viento (kt)", 0, 100, 0)
             rwy = wc3.number_input("Rumbo de Pista (°)", 0, 360, 0)
-            
             if ws > 0:
                 cw, hw = calcular_viento_cruzado(wd, ws, rwy)
-                st.write("---")
-                rc1, rc2 = st.columns(2)
-                
-                # Lógica de colores para seguridad
                 color_cw = "red" if cw > 20 else ("orange" if cw > 15 else "green")
-                
-                rc1.markdown(f"**Viento Cruzado:** :{color_cw}[{cw:.1f} kts]")
-                if hw >= 0:
-                    rc2.markdown(f"**Viento de Frente:** :green[{hw:.1f} kts]")
-                else:
-                    rc2.markdown(f"**Viento de Cola:** :red[{abs(hw):.1f} kts]")
-        
-        # TAB 2: DESCENSO
+                st.write(f"**Viento Cruzado:** :{color_cw}[{cw:.1f} kts]")
         with t2:
-            st.subheader("Calculadora TOD (Top of Descent)")
+            st.subheader("Calculadora TOD")
             c_alt, c_tgt = st.columns(2)
             alt_act = c_alt.number_input("Altitud Actual (ft)", value=35000, step=1000)
             alt_tgt = c_tgt.number_input("Altitud Objetivo (ft)", value=3000, step=1000)
             if alt_act > alt_tgt:
                 dist = (alt_act - alt_tgt) * 3 / 1000
-                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM** del destino.")
-            
-        # TAB 3: CONVERSOR
+                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM**.")
         with t3:
             st.subheader("Conversor Rápido")
             cc1, cc2 = st.columns(2)
             kg = cc1.number_input("Kg", value=0)
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
-            hpa = cc2.number_input("hPa", value=1013)
-            st.caption(f"{hpa} hPa = {hpa*0.02953:.2f} inHg")
 
     # 6. ESTADÍSTICAS
     elif menu == "📊 Estadísticas":
         st.header("📊 Estadísticas")
         df = leer_vuelos()
         if not df.empty:
-            # MOSTRAR PROMEDIO DE ATERRIZAJE
             if 'Landing_Rate_FPM' in df.columns:
                 avg_l = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce').mean()
                 st.metric("Promedio de Toque (Landing Rate)", f"{avg_l:.0f} fpm")
-            
             c1, c2 = st.columns(2)
             top_av = df['Modelo_Avion'].value_counts().head(10)
             c1.plotly_chart(px.bar(top_av, orientation='h', title="Aviones Top"), use_container_width=True)
