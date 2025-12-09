@@ -3,30 +3,58 @@ import csv
 import random
 import requests
 import pandas as pd
-from datetime import datetime
-import re # Importar la librería de expresiones regulares
+from datetime import datetime, timedelta 
+import re 
 
 # --- 1. Configuración de Datos Base ---
 
 AEROPUERTOS_EJEMPLO = [
     "JFK", "LAX", "LHR", "CDG", "NRT", "DXB", "PEK", "MIA", "MAD", "SCL", "GRU", "GIG", "EHAM", "EGLL", "KJFK", "KLAX", "SCEL", "SAEZ", "LEMD"
 ]
-AEROLINEAS_EJEMPLO = [
-    "AirTech", "FlyPy Airways", "Python Airlines", "DataWings Express", "LATAM", "Air France", "British Airways", "Iberia"
+
+# Lista de aerolíneas predefinidas + la opción para buscar/agregar
+AEROLINEAS_PREDEFINIDAS = [
+    "--- Escribir o buscar aquí ---",
+    "LATAM Airlines", "Air France", "British Airways", "Iberia", "Lufthansa", "Emirates", "Delta Air Lines", 
+    "American Airlines", "Southwest Airlines", "Ryanair", "EasyJet", "Avianca", "Aerolíneas Argentinas", 
+    "Qatar Airways", "KLM", "Air Canada"
 ]
 
-# Lista extendida de modelos de avión comunes en MSFS 2020
+# LISTA ACTUALIZADA DE MODELOS DE AVIÓN
 MODELOS_AVION_EJEMPLO = [
-    "Airbus A320neo", "Airbus A310", "Boeing 747-8 Intercontinental", "Boeing 787-10 Dreamliner",
-    "Boeing 737-800", "Boeing 777-300ER", "Cessna 172 Skyhawk", "Daher TBM 930", 
-    "Diamond DA62", "Cessna Citation Longitude", "Pilatus PC-6 B2/H4", "F/A-18E/F Super Hornet",
-    "Learjet 35A", "Icon A5", "Fokker F28", "De Havilland Canada DHC-6 Twin Otter"
+    "ATR 42-600",
+    "ATR 72-600",
+    "Airbus A319",
+    "Airbus A320",
+    "Airbus A320 Neo",
+    "Airbus A321 Neo",
+    "Airbus A330-900",
+    "Airbus A340-600",
+    "Airbus A350-900",
+    "Airbus A350-1000",
+    "Airbus A380-800",
+    "Boeing 737-600",
+    "Boeing 737-700",
+    "Boeing 737-800",
+    "Boeing 737-900",
+    "Boeing 747-8",
+    "Boeing 777-200",
+    "Boeing 777-200LR",
+    "Boeing 777-300ER",
+    "Boeing 777F",
+    "Boeing 787-8",
+    "Boeing 787-9",
+    "Boeing 787-10",
+    "Embraer E170",
+    "Embraer E190",
+    "Embraer E195"
 ]
 
 NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
+# Encabezados actualizados con las horas UTC
 ENCABEZADOS_CSV = [
     "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
-    "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta", "Notas" # Clase y Asiento eliminados
+    "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta", "Notas"
 ]
 
 # Diccionario de distancias simuladas (en Millas Náuticas - NM)
@@ -35,6 +63,7 @@ DISTANCIAS_NM = {
     "KJFK-KLAX": 2146, "EGLL-EHAM": 201, "KJFK-EGLL": 3004, "KLAX-KJFK": 2146,
     "SCEL-SAEZ": 699, "SAEZ-SCEL": 699
 }
+# Asegura que las distancias funcionen en ambos sentidos
 for key, dist in list(DISTANCIAS_NM.items()):
     o, d = key.split('-')
     DISTANCIAS_NM[f"{d}-{o}"] = dist
@@ -75,26 +104,19 @@ def obtener_metar(icao_code):
         if response.status_code == 200:
             lines = response.text.strip().split('\n')
             
-            # Buscamos el METAR Raw. A veces está en la tercera línea, a veces en la segunda.
-            # El METAR Raw es el que empieza con el código ICAO
-            
             raw_metar = "METAR no encontrado o datos incompletos."
             fecha_obs = "Fecha desconocida"
             
             for line in lines:
                 line = line.strip()
-                # La primera línea siempre es la hora de observación
                 if line.startswith('20'):
                     fecha_obs = line
-                # Si la línea empieza con el ICAO, es el METAR Raw
                 elif line.startswith(icao_code.upper()):
                     raw_metar = line
                     break 
 
-            if raw_metar == "METAR no encontrado o datos incompletos.":
-                 # Fallback: intentar extraer la parte RAW asumiendo que es toda la línea despues de la fecha
-                 if len(lines) > 2:
-                     raw_metar = lines[2].strip()
+            if raw_metar == "METAR no encontrado o datos incompletos." and len(lines) > 2:
+                 raw_metar = lines[2].strip()
 
             resultado = (
                 f"--- ☁️ METAR de **{icao_code.upper()}** ---"
@@ -126,21 +148,47 @@ def mostrar_registro_vuelo():
     st.header("📝 Registrar Vuelo Completado")
     
     with st.form("registro_vuelo_form"):
+        # Tres columnas principales para la info básica
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            fecha = st.date_input("Fecha", value=datetime.now())
+            st.subheader("Ruta y Aeronave")
+            fecha = st.date_input("Fecha (OUT)", value=datetime.now().date())
             origen = st.text_input("Código ICAO de Origen (Ej: KJFK)", "").upper()
             destino = st.text_input("Código ICAO de Destino (Ej: EGLL)", "").upper()
-
-        with col2:
             modelo_avion = st.selectbox("Modelo de Avión", MODELOS_AVION_EJEMPLO)
-            # Etiqueta modificada de "Aerolínea Virtual" a "Aerolínea"
-            aerolinea = st.text_input("Aerolínea") 
-            no_vuelo = st.text_input("Número de Vuelo")
-        
+            
+        with col2:
+            st.subheader("Tiempos UTC (Z) y Duración")
+            hora_out = st.text_input("Hora OUT (Salida) UTC (HHMM)", value="", max_chars=4)
+            hora_in = st.text_input("Hora IN (Llegada) UTC (HHMM)", value="", max_chars=4)
+            
+            tiempo_manual = st.number_input(
+                "Tiempo de Vuelo Manual (Horas) - Solo si OUT/IN falla", 
+                min_value=0.0, 
+                step=0.1, 
+                format="%.1f", 
+                value=0.0
+            )
+            
         with col3:
-            tiempo_vuelo_horas = st.number_input("Tiempo de Vuelo Total (Horas)", min_value=0.0, step=0.1, format="%.1f")
+            st.subheader("Detalles del Vuelo")
+            
+            # Aerolínea con Selectbox + Text Input
+            aerolinea_seleccionada = st.selectbox(
+                "Aerolínea", 
+                AEROLINEAS_PREDEFINIDAS, 
+                index=0
+            )
+            
+            aerolinea_manual = ""
+            if aerolinea_seleccionada == "--- Escribir o buscar aquí ---":
+                aerolinea_manual = st.text_input("Ingresa la Aerolínea (Nueva)")
+                aerolinea_final = aerolinea_manual
+            else:
+                aerolinea_final = aerolinea_seleccionada
+
+            no_vuelo = st.text_input("Número de Vuelo")
             puerta = st.text_input("Puerta/Parking")
         
         ruta = st.text_area("Ruta / Plan de Vuelo (Opcional)")
@@ -149,34 +197,79 @@ def mostrar_registro_vuelo():
         submitted = st.form_submit_button("Guardar Vuelo 💾")
 
         if submitted:
-            if origen and destino and tiempo_vuelo_horas > 0:
-                distancia_nm = calcular_distancia_estimada(origen, destino)
-                
-                datos_vuelo = {
-                    "Fecha": fecha.strftime("%Y-%m-%d"),
-                    "Origen": origen,
-                    "Destino": destino,
-                    "Ruta": ruta,
-                    "Aerolinea": aerolinea,
-                    "No_Vuelo": no_vuelo,
-                    "Modelo_Avion": modelo_avion,
-                    "Tiempo_Vuelo_Horas": tiempo_vuelo_horas,
-                    "Distancia_NM": distancia_nm,
-                    "Puerta": puerta,
-                    "Notas": notas
-                }
-                
-                try:
-                    with open(NOMBRE_ARCHIVO, mode='a', newline='', encoding='utf-8') as archivo:
-                        escritor_csv = csv.writer(archivo)
-                        fila = [datos_vuelo.get(h, '') for h in ENCABEZADOS_CSV]
-                        escritor_csv.writerow(fila)
+            
+            # Validación de la aerolínea
+            if aerolinea_final == "" or aerolinea_final == "--- Escribir o buscar aquí ---":
+                st.error("Por favor, selecciona o escribe el nombre de una Aerolínea.")
+                return
+
+            # 1. Validación de campos obligatorios
+            if not (origen and destino):
+                st.error("Por favor, completa los códigos ICAO de Origen y Destino.")
+                return
+
+            # Inicializar el tiempo de vuelo con el valor manual como fallback
+            tiempo_vuelo_horas = tiempo_manual
+            
+            # 2. Cálculo de Tiempo de Vuelo (Sobrescribe el tiempo manual si es exitoso)
+            try:
+                if hora_out and hora_in:
+                    if not (hora_out.isdigit() and len(hora_out) == 4 and hora_in.isdigit() and len(hora_in) == 4):
+                        raise ValueError("Formato de hora inválido. Usa HHMM.")
+                        
+                    out_h = int(hora_out[:2])
+                    out_m = int(hora_out[2:])
+                    in_h = int(hora_in[:2])
+                    in_m = int(hora_in[2:])
                     
-                    st.success(f"✅ ¡Vuelo registrado exitosamente! Ruta {origen}-{destino} ({distancia_nm} NM).")
-                except Exception as e:
-                    st.error(f"❌ Error al guardar el vuelo: {e}")
-            else:
-                st.error("Por favor, completa los campos obligatorios (Origen, Destino y Tiempo de Vuelo > 0).")
+                    base_date = fecha
+                    out_dt = datetime(base_date.year, base_date.month, base_date.day, out_h, out_m)
+                    in_dt = datetime(base_date.year, base_date.month, base_date.day, in_h, in_m)
+                    
+                    if in_dt < out_dt:
+                        in_dt = in_dt + timedelta(days=1)
+                        
+                    flight_duration = in_dt - out_dt
+                    tiempo_vuelo_horas = flight_duration.total_seconds() / 3600.0
+                    st.success(f"✅ Tiempo de vuelo calculado automáticamente: **{tiempo_vuelo_horas:.2f} h**")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Error al calcular el tiempo de vuelo: {e}. Se utilizará el valor manual de **{tiempo_manual:.1f} h**.")
+
+            # 3. Validación final del tiempo
+            if tiempo_vuelo_horas <= 0:
+                st.error("El tiempo de vuelo (automático o manual) debe ser mayor a 0.")
+                return
+
+            # 4. Cálculo de Distancia (Automatizado)
+            distancia_nm = calcular_distancia_estimada(origen, destino)
+            
+            # 5. Registro de Datos
+            datos_vuelo = {
+                "Fecha": fecha.strftime("%Y-%m-%d"),
+                "Origen": origen,
+                "Destino": destino,
+                "Ruta": ruta,
+                "Aerolinea": aerolinea_final, # Usar la aerolínea validada
+                "No_Vuelo": no_vuelo,
+                "Modelo_Avion": modelo_avion,
+                "Hora_OUT_UTC": hora_out,
+                "Hora_IN_UTC": hora_in,
+                "Tiempo_Vuelo_Horas": f"{tiempo_vuelo_horas:.2f}", 
+                "Distancia_NM": distancia_nm,
+                "Puerta": puerta,
+                "Notas": notas
+            }
+            
+            try:
+                with open(NOMBRE_ARCHIVO, mode='a', newline='', encoding='utf-8') as archivo:
+                    escritor_csv = csv.writer(archivo)
+                    fila = [datos_vuelo.get(h, '') for h in ENCABEZADOS_CSV]
+                    escritor_csv.writerow(fila)
+                
+                st.success(f"✅ ¡Vuelo registrado exitosamente! Distancia estimada: **{distancia_nm:,.0f} NM**.")
+            except Exception as e:
+                st.error(f"❌ Error al guardar el vuelo: {e}")
 
 def mostrar_herramienta_metar():
     st.header("☁️ Herramienta METAR")
@@ -199,42 +292,47 @@ def mostrar_herramienta_metar():
         else:
             st.warning("El código ICAO debe tener 4 letras.")
             
-    # Guía de Decodificación METAR
+    # Guía de Decodificación METAR (Completa)
     st.markdown("---")
-    st.subheader("Guía Rápida para Entender el METAR")
-    st.markdown("El METAR sigue un formato estricto y secuencial. Aquí tienes una estructura típica y ejemplos:")
+    st.subheader("Guía Completa para Entender el METAR")
+    st.markdown("El METAR se lee en una secuencia fija de grupos. Utiliza esta guía para descifrar cada código. **Recuerda: Si aparece CAVOK, reemplaza los grupos de Visibilidad, Fenómenos y Nubes.**")
     
-    st.code("SCEL 092200Z 21015KT 9999 FEW030 BKN080 26/12 Q1011 NOSIG")
-    
+    # Estructura principal
     st.table({
-        "Sección": [
-            "1. Identificador y Tiempo",
-            "2. Viento (Dirección y Velocidad)",
-            "3. Visibilidad",
-            "4. Nubes y Techo",
-            "5. Temperatura y Punto de Rocío",
-            "6. Presión (QNH)",
-            "7. Tendencia"
-        ],
-        "Ejemplo": [
-            "**SCEL** 09**2200Z**",
-            "**21015KT**",
-            "**9999**",
-            "**FEW030 BKN080**",
-            "**26/12**",
-            "**Q1011**",
-            "**NOSIG**"
-        ],
+        "Sección": ["1. Identificador, Hora y Condición", "2. Viento", "3. Visibilidad", "4. Fenómenos", "5. Nubes y Techo", "6. Temperatura/Punto de Rocío", "7. Presión (QNH)", "8. Tendencia"],
+        "Ejemplo": ["SCEL 092200Z AUTO", "21015G25KT", "9999", "-SHRA", "FEW030 BKN080", "26/12", "Q1011", "NOSIG"],
         "Significado": [
-            "**SCEL**: Aeropuerto (Santiago de Chile). **09**: Día 9 del mes. **2200Z**: Hora 22:00 Zulu (UTC).",
-            "**210**: Dirección de 210 grados (viento viene de 210°). **15KT**: Velocidad de 15 Nudos.",
-            "**9999**: 10 kilómetros o más (Visibilidad excelente). **CAVOK** (Ceiling and Visibility OK) si aplica.",
-            "**FEW030**: Poca (Few) cobertura a 3,000 pies. **BKN080**: Cobertura Rota (Broken) a 8,000 pies.",
-            "**26**: Temperatura ambiente de 26°C. **12**: Punto de Rocío de 12°C.",
-            "**Q1011**: Presión Altímetrica (QNH) de 1011 Hectopascales.",
-            "**NOSIG**: No hay cambio significativo de tiempo en las próximas 2 horas."
+            "Aeropuerto (SCEL), Día 09, Hora 22:00 UTC (Z), Automático.",
+            "De 210 grados, 15 nudos, Ráfagas (G) de 25 nudos.",
+            "10 kilómetros o más (Excelente).",
+            "Chubasco (SH) de Lluvia (RA) Ligero (-).",
+            "Pocas nubes a 3000 ft, Rotas a 8000 ft.",
+            "Temperatura 26°C / Punto de Rocío 12°C.",
+            "Presión 1011 Hectopascales.",
+            "No hay cambio significativo."
         ]
     })
+    
+    # Detalles adicionales de códigos
+    with st.expander("Ver Códigos Detallados (Intensidad, Descriptores y Fenómenos)"):
+        st.markdown("### Códigos Comunes de Fenómenos Meteorológicos")
+        
+        col_c1, col_c2, col_c3 = st.columns(3)
+
+        with col_c1:
+            st.markdown("#### Intensidad/Proximidad")
+            st.code("- : Ligera\n(ninguno) : Moderada\n+ : Fuerte\nVC : Cerca (Vicinity)")
+            
+        with col_c2:
+            st.markdown("#### Descriptores (Cómo se ve)")
+            st.code("MI : Fina/Baja\nBC : Bancos\nSH : Chubasco\nTS : Tormenta\nFZ : Congelante\nBL : Alta (Blowing)")
+
+        with col_c3:
+            st.markdown("#### Fenómenos (Qué es)")
+            st.code("RA : Lluvia\nSN : Nieve\nFG : Niebla (Visibilidad < 1km)\nBR : Neblina (Vis. 1-5km)\nHZ : Bruma\nFU : Humo\nGR : Granizo\nPL : Granizo")
+
+        st.markdown("### Otros Códigos Importantes")
+        st.code("VRB03KT : Viento Variable a 3 nudos.\nM05/M08 : Temperatura -5°C / Punto de Rocío -8°C.\nVV002 : Visibilidad Vertical de 200 pies (cielo oscurecido).\nNSC : No Significant Clouds (No nubes significativas).\nBECMG : Cambiando permanentemente (Tendencia).\nTEMPO : Cambio temporal (Tendencia).")
 
 
 def mostrar_logbook():
