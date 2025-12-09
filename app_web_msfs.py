@@ -12,15 +12,30 @@ AEROPUERTOS_EJEMPLO = [
     "JFK", "LAX", "LHR", "CDG", "NRT", "DXB", "PEK", "MIA", "MAD", "SCL", "GRU", "GIG", "EHAM", "EGLL", "KJFK", "KLAX", "SCEL", "SAEZ", "LEMD"
 ]
 
-# Lista de aerolíneas predefinidas + la opción para buscar/agregar
+# LISTA MASIVA DE AEROLÍNEAS (Principales del mundo + Carga)
 AEROLINEAS_PREDEFINIDAS = [
     "--- Escribir o buscar aquí ---",
-    "LATAM Airlines", "Air France", "British Airways", "Iberia", "Lufthansa", "Emirates", "Delta Air Lines", 
-    "American Airlines", "Southwest Airlines", "Ryanair", "EasyJet", "Avianca", "Aerolíneas Argentinas", 
-    "Qatar Airways", "KLM", "Air Canada"
+    "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
+    "Air Europa", "Air France", "Air India", "Air New Zealand", "Air Transat", "Alaska Airlines", 
+    "Alitalia (ITA Airways)", "All Nippon Airways (ANA)", "American Airlines", "Asiana Airlines", 
+    "Atlas Air (Cargo)", "Austrian Airlines", "Avianca", "Azul Brazilian Airlines", "British Airways", 
+    "Brussels Airlines", "Cathay Pacific", "Cebu Pacific", "China Airlines", "China Eastern Airlines", 
+    "China Southern Airlines", "Copa Airlines", "Delta Air Lines", "DHL Aviation", "EasyJet", 
+    "EgyptAir", "El Al", "Emirates", "Ethiopian Airlines", "Etihad Airways", "Eurowings", 
+    "EVA Air", "FedEx Express", "Finnair", "Flydubai", "Frontier Airlines", "Garuda Indonesia", 
+    "GOL Linhas Aéreas", "Gulf Air", "Hainan Airlines", "Hawaiian Airlines", "Iberia", "Icelandair", 
+    "IndiGo", "Japan Airlines (JAL)", "JetBlue", "Jetstar", "JetSmart", "Kenya Airways", "KLM", 
+    "Korean Air", "LATAM Airlines", "Lion Air", "LOT Polish Airlines", "Lufthansa", "Malaysia Airlines", 
+    "Norwegian Air Shuttle", "Oman Air", "Philippine Airlines", "Qantas", "Qatar Airways", 
+    "Royal Air Maroc", "Royal Jordanian", "Ryanair", "SAS (Scandinavian Airlines)", "Saudia", 
+    "Scoot", "Singapore Airlines", "Sky Airline", "South African Airways", "Southwest Airlines", 
+    "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Swiss International Air Lines", 
+    "TAP Air Portugal", "Thai Airways", "Turkish Airlines", "United Airlines", "UPS Airlines", 
+    "VietJet Air", "Vietnam Airlines", "Virgin Atlantic", "Virgin Australia", "Volaris", 
+    "Vueling", "WestJet", "Wizz Air", "XiamenAir"
 ]
 
-# LISTA ACTUALIZADA DE MODELOS DE AVIÓN
+# LISTA DE MODELOS DE AVIÓN
 MODELOS_AVION_EJEMPLO = [
     "ATR 42-600",
     "ATR 72-600",
