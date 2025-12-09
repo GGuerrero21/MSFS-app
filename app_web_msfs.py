@@ -6,10 +6,39 @@ import pandas as pd
 import plotly.express as px
 import folium
 import math
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 from streamlit_folium import st_folium
 from datetime import datetime, timedelta
 
-# --- 1. BASES DE DATOS Y CONFIGURACIÓN ---
+# --- 1. CONFIGURACIÓN Y DATOS ---
+
+# Mapeo de Estilos de Aerolíneas (Colores Reales y Código IATA para Logos)
+AIRLINE_STYLES = {
+    "LAN": {"color": "#181373", "iata": "LA", "name": "LATAM Airlines"},
+    "LPE": {"color": "#181373", "iata": "LA", "name": "LATAM Perú"},
+    "AVA": {"color": "#DA291C", "iata": "AV", "name": "Avianca"},
+    "AMX": {"color": "#002A54", "iata": "AM", "name": "Aeroméxico"},
+    "IBE": {"color": "#D7192D", "iata": "IB", "name": "Iberia"},
+    "AAL": {"color": "#0078D2", "iata": "AA", "name": "American Airlines"},
+    "DAL": {"color": "#E31837", "iata": "DL", "name": "Delta"},
+    "UAL": {"color": "#005DAA", "iata": "UA", "name": "United"},
+    "BAW": {"color": "#00247D", "iata": "BA", "name": "British Airways"},
+    "AFR": {"color": "#002157", "iata": "AF", "name": "Air France"},
+    "KLM": {"color": "#00A1DE", "iata": "KL", "name": "KLM"},
+    "Lufthansa": {"color": "#05164D", "iata": "LH", "name": "Lufthansa"}, # A veces SimBrief da nombres
+    "DLH": {"color": "#05164D", "iata": "LH", "name": "Lufthansa"},
+    "CMP": {"color": "#003263", "iata": "CM", "name": "Copa Airlines"},
+    "UAE": {"color": "#D71921", "iata": "EK", "name": "Emirates"},
+    "QFA": {"color": "#E40000", "iata": "QF", "name": "Qantas"},
+    "JAL": {"color": "#CC0000", "iata": "JL", "name": "Japan Airlines"},
+    "ARG": {"color": "#00A3E0", "iata": "AR", "name": "Aerolíneas Arg."},
+    "VLG": {"color": "#FFCC00", "iata": "VY", "name": "Vueling", "text_color": "black"},
+    "RYR": {"color": "#0D1E50", "iata": "FR", "name": "Ryanair"},
+    "EZY": {"color": "#FF6600", "iata": "U2", "name": "easyJet"},
+    "SKU": {"color": "#8800CC", "iata": "H2", "name": "Sky Airline"},
+    "JAT": {"color": "#363636", "iata": "JA", "name": "JetSmart"},
+}
 
 AIRPORT_COORDS = {
     "KJFK": [40.6413, -73.7781], "EGLL": [51.4700, -0.4543], "SCEL": [-33.3930, -70.7858],
@@ -19,8 +48,6 @@ AIRPORT_COORDS = {
     "RJAA": [35.7719, 140.3928], "YSSY": [-33.9399, 151.1753], "SBGR": [-23.4356, -46.4731],
     "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021]
 }
-
-# --- LISTAS DEFINITIVAS ---
 
 AEROLINEAS_BASE = [
     "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
@@ -74,13 +101,12 @@ CHECKLISTS_DB = {
 }
 
 NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
-# NUEVO CAMPO AGREGADO: Landing_Rate_FPM
 ENCABEZADOS_CSV = [
     "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
     "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta_Salida", "Puerta_Llegada", "Landing_Rate_FPM", "Notas"
 ]
 
-# --- 2. FUNCIONES DE LÓGICA ---
+# --- 2. FUNCIONES LÓGICAS ---
 
 def crear_archivo_csv():
     try:
@@ -119,15 +145,20 @@ def obtener_datos_simbrief(username):
             destination = dest_data.get('icao_code', '')
             flight_no = f"{general.get('icao_airline', '')}{general.get('flight_number', '')}"
             route = general.get('route', '')
-            gate_out = origin_data.get('gate', '')
-            gate_in = dest_data.get('gate', '')
+            gate_out = origin_data.get('gate', 'TBD')
+            gate_in = dest_data.get('gate', 'TBD')
             times = data.get('times', {})
             est_time = int(times.get('est_block', 0)) / 3600
             
+            # Hora estimada salida (simulada o real si el OFP la tiene)
+            dep_time = datetime.utcfromtimestamp(int(times.get('sched_out', 0))).strftime('%H:%M') if times.get('sched_out') else "12:00"
+
             return {
                 "origen": origin, "destino": destination, "no_vuelo": flight_no,
                 "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', ''),
-                "puerta_salida": gate_out, "puerta_llegada": gate_in
+                "puerta_salida": gate_out, "puerta_llegada": gate_in,
+                "hora_salida": dep_time,
+                "fecha": datetime.now().strftime("%d %b %Y").upper()
             }, None
         else: return None, "Error al conectar con SimBrief."
     except Exception as e: return None, f"Excepción: {e}"
@@ -160,20 +191,105 @@ def obtener_clima(icao_code):
     except: raw_taf = "Error conexión"
     
     if raw_metar == "No disponible" and raw_taf == "No disponible":
-        return None, "❌ No se encontraron datos para esa estación."
+        return None, "❌ No se encontraron datos."
     return (raw_metar, raw_taf), None
 
-# NUEVA LÓGICA: VIENTO CRUZADO
 def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
-    # Convertir a radianes
     diff = abs(wind_dir - rwy_heading)
     theta = math.radians(diff)
-    
-    # Cálculos
     crosswind = abs(math.sin(theta) * wind_spd)
     headwind = math.cos(theta) * wind_spd
-    
     return crosswind, headwind
+
+# --- GENERADOR DE BOARDING PASS ---
+def generar_boarding_pass_img(data):
+    # Dimensiones
+    W, H = 600, 250
+    
+    # Obtener estilo aerolínea
+    icao = data.get('aerolinea_icao', 'UNK')
+    estilo = AIRLINE_STYLES.get(icao, {"color": "#333333", "iata": "", "name": "AEROLÍNEA"})
+    
+    bg_color = "white"
+    primary_color = estilo["color"]
+    text_color_header = estilo.get("text_color", "white")
+
+    # Crear Imagen Base
+    img = Image.new('RGB', (W, H), color=bg_color)
+    draw = ImageDraw.Draw(img)
+
+    # 1. Cabecera (Color Aerolínea)
+    draw.rectangle([(0, 0), (W, 60)], fill=primary_color)
+    
+    # Fuente (Usamos por defecto si no hay ttf)
+    try:
+        font_lg = ImageFont.truetype("arial.ttf", 36)
+        font_md = ImageFont.truetype("arial.ttf", 24)
+        font_sm = ImageFont.truetype("arial.ttf", 16)
+        font_xs = ImageFont.truetype("arial.ttf", 12)
+    except:
+        font_lg = ImageFont.load_default()
+        font_md = ImageFont.load_default()
+        font_sm = ImageFont.load_default()
+        font_xs = ImageFont.load_default()
+
+    # 2. Logo / Nombre
+    # Intentar descargar logo pequeño si tenemos IATA
+    logo_exito = False
+    if estilo["iata"]:
+        try:
+            url_logo = f"https://www.gstatic.com/flights/airline_logos/70px/{estilo['iata']}.png"
+            response = requests.get(url_logo)
+            if response.status_code == 200:
+                logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
+                # Redimensionar manteniendo aspecto
+                logo_img.thumbnail((50, 50))
+                img.paste(logo_img, (15, 5), logo_img)
+                draw.text((80, 15), estilo["name"], font=font_md, fill=text_color_header)
+                logo_exito = True
+        except: pass
+    
+    if not logo_exito:
+        draw.text((20, 15), estilo["name"], font=font_md, fill=text_color_header)
+    
+    draw.text((W - 150, 20), "BOARDING PASS", font=font_sm, fill=text_color_header)
+
+    # 3. Cuerpo del Pase
+    # Fila 1: Origen -> Destino
+    draw.text((30, 80), data['origen'], font=font_lg, fill="black")
+    draw.text((150, 95), "✈", font=font_md, fill=primary_color)
+    draw.text((200, 80), data['destino'], font=font_lg, fill="black")
+    
+    # Datos Derecha (Vuelo)
+    draw.text((400, 80), "VUELO", font=font_xs, fill="gray")
+    draw.text((400, 95), data['no_vuelo'], font=font_md, fill="black")
+    
+    # Fila 2: Detalles
+    y_row2 = 150
+    
+    # Hora
+    draw.text((30, y_row2), "HORA", font=font_xs, fill="gray")
+    draw.text((30, y_row2+15), data.get('hora_salida', '12:00'), font=font_md, fill="black")
+    
+    # Puerta
+    draw.text((150, y_row2), "PUERTA", font=font_xs, fill="gray")
+    gate = data.get('puerta_salida', 'TBD')
+    draw.text((150, y_row2+15), gate if gate else "---", font=font_md, fill=primary_color)
+    
+    # Asiento (Random si no existe)
+    asiento = f"{random.randint(1,30)}{random.choice(['A','B','C','D','E','F'])}"
+    draw.text((250, y_row2), "ASIENTO", font=font_xs, fill="gray")
+    draw.text((250, y_row2+15), asiento, font=font_md, fill="black")
+    
+    # Fecha
+    draw.text((400, y_row2), "FECHA", font=font_xs, fill="gray")
+    draw.text((400, y_row2+15), data.get('fecha', 'HOY'), font=font_sm, fill="black")
+
+    # 4. Footer (Barcode Falso)
+    draw.rectangle([(0, 210), (W, 250)], fill="#eeeeee")
+    draw.rectangle([(20, 220), (W-20, 240)], fill="black") # Simula código de barras
+
+    return img
 
 # --- 3. INTERFAZ GRÁFICA ---
 
@@ -194,22 +310,33 @@ def main_app():
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", ["📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa", "☁️ Clima (METAR/TAF)", "🧰 Herramientas", "📊 Estadísticas"])
 
-    # 1. REGISTRO (CON LANDING RATE)
+    # 1. REGISTRO
     if menu == "📋 Registro de Vuelo":
         st.header("📋 Registrar Vuelo / SimBrief")
         if 'form_data' not in st.session_state:
             st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "tiempo": 0.0, "puerta_salida": "", "puerta_llegada": ""}
+        
+        # VARIABLE PARA MOSTRAR BOARDING PASS
+        if 'boarding_pass_img' not in st.session_state:
+            st.session_state.boarding_pass_img = None
 
-        with st.expander("📥 Importar SimBrief", expanded=True):
+        with st.expander("📥 Importar SimBrief (Generar Boarding Pass)", expanded=True):
             c1, c2 = st.columns([3, 1])
             sb_user = c1.text_input("Usuario SimBrief")
-            if c2.button("Importar"):
+            if c2.button("Importar y Generar"):
                 datos, err = obtener_datos_simbrief(sb_user)
                 if datos:
                     st.session_state.form_data.update(datos)
                     st.session_state.form_data["tiempo"] = datos["tiempo_est"]
-                    st.success("Cargado.")
+                    # GENERAR TARJETA
+                    img = generar_boarding_pass_img(datos)
+                    st.session_state.boarding_pass_img = img
+                    st.success("¡Datos cargados y Tarjeta Generada!")
                 else: st.error(err)
+
+        # MOSTRAR TARJETA SI EXISTE
+        if st.session_state.boarding_pass_img:
+            st.image(st.session_state.boarding_pass_img, caption="Tarjeta de Embarque Digital", use_column_width=False, width=600)
 
         with st.form("vuelo"):
             c1, c2, c3 = st.columns(3)
@@ -227,23 +354,18 @@ def main_app():
                 if st.checkbox("¿Nueva Aerolínea?"): aero = st.text_input("Nombre")
                 else: aero = st.selectbox("Aerolínea", lista_aero)
                 num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
-                
-                # SECCIÓN PUERTAS
                 g1, g2 = st.columns(2)
                 p_out = g1.text_input("Gate Salida", value=st.session_state.form_data["puerta_salida"])
                 p_in = g2.text_input("Gate Llegada", value=st.session_state.form_data["puerta_llegada"])
             
-            # NUEVO CAMPO: LANDING RATE
             st.markdown("---")
             col_lrate, col_ruta = st.columns([1, 3])
-            l_rate = col_lrate.number_input("Landing Rate (fpm)", value=0, step=10, help="Ej: -150 para un toque suave")
+            l_rate = col_lrate.number_input("Landing Rate (fpm)", value=0, step=10)
             ruta = col_ruta.text_area("Ruta", value=st.session_state.form_data["ruta"], height=100)
-            
             notas = st.text_area("Notas")
             
             if st.form_submit_button("Guardar Vuelo 💾"):
                 if tiempo > 0 and origen and destino:
-                    # AGREGAMOS l_rate AL CSV
                     row = [fecha, origen, destino, ruta, aero, num, modelo, h_out, h_in, f"{tiempo:.2f}", 0, p_out, p_in, l_rate, notas]
                     with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f: csv.writer(f).writerow(row)
                     st.success("Registrado!")
@@ -286,7 +408,6 @@ def main_app():
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico")
         tab1, tab2 = st.tabs(["🔍 Buscar Clima", "📖 Escuela Meteorológica"])
-        
         with tab1:
             with st.form("metar_search"):
                 col_s1, col_s2 = st.columns([3,1])
@@ -300,73 +421,46 @@ def main_app():
                         st.info(f"**METAR:**\n`{metar}`")
                         st.warning(f"**TAF:**\n`{taf}`")
                     else: st.error(err)
-
         with tab2:
-            st.markdown("""
-            ### Guía Rápida METAR
-            * **SCEL 091400Z:** Lugar y Hora Zulú.
-            * **18010KT:** Viento 180° a 10 nudos (`G`=Ráfagas).
-            * **9999:** Visibilidad +10km.
-            * **SCT030:** Nubes dispersas a 3000 pies.
-            * **Q1016:** Presión 1016 hPa.
-            """)
+            st.markdown("### Guía Rápida METAR")
+            st.write("Consulta la guía de códigos para interpretar el METAR.")
 
-    # 5. HERRAMIENTAS (CON VIENTO CRUZADO)
+    # 5. HERRAMIENTAS
     elif menu == "🧰 Herramientas":
         st.header("🧰 Herramientas de Vuelo")
         t1, t2, t3 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor"])
-        
-        # TAB 1: VIENTO CRUZADO
         with t1:
             st.subheader("Calculadora de Viento Cruzado")
             wc1, wc2, wc3 = st.columns(3)
             wd = wc1.number_input("Dirección Viento (°)", 0, 360, 0)
             ws = wc2.number_input("Velocidad Viento (kt)", 0, 100, 0)
             rwy = wc3.number_input("Rumbo de Pista (°)", 0, 360, 0)
-            
             if ws > 0:
                 cw, hw = calcular_viento_cruzado(wd, ws, rwy)
-                st.write("---")
-                rc1, rc2 = st.columns(2)
-                
-                # Lógica de colores para seguridad
                 color_cw = "red" if cw > 20 else ("orange" if cw > 15 else "green")
-                
-                rc1.markdown(f"**Viento Cruzado:** :{color_cw}[{cw:.1f} kts]")
-                if hw >= 0:
-                    rc2.markdown(f"**Viento de Frente:** :green[{hw:.1f} kts]")
-                else:
-                    rc2.markdown(f"**Viento de Cola:** :red[{abs(hw):.1f} kts]")
-        
-        # TAB 2: DESCENSO
+                st.write(f"**Viento Cruzado:** :{color_cw}[{cw:.1f} kts]")
         with t2:
-            st.subheader("Calculadora TOD (Top of Descent)")
+            st.subheader("Calculadora TOD")
             c_alt, c_tgt = st.columns(2)
             alt_act = c_alt.number_input("Altitud Actual (ft)", value=35000, step=1000)
             alt_tgt = c_tgt.number_input("Altitud Objetivo (ft)", value=3000, step=1000)
             if alt_act > alt_tgt:
                 dist = (alt_act - alt_tgt) * 3 / 1000
-                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM** del destino.")
-            
-        # TAB 3: CONVERSOR
+                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM**.")
         with t3:
             st.subheader("Conversor Rápido")
             cc1, cc2 = st.columns(2)
             kg = cc1.number_input("Kg", value=0)
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
-            hpa = cc2.number_input("hPa", value=1013)
-            st.caption(f"{hpa} hPa = {hpa*0.02953:.2f} inHg")
 
     # 6. ESTADÍSTICAS
     elif menu == "📊 Estadísticas":
         st.header("📊 Estadísticas")
         df = leer_vuelos()
         if not df.empty:
-            # MOSTRAR PROMEDIO DE ATERRIZAJE
             if 'Landing_Rate_FPM' in df.columns:
                 avg_l = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce').mean()
                 st.metric("Promedio de Toque (Landing Rate)", f"{avg_l:.0f} fpm")
-            
             c1, c2 = st.columns(2)
             top_av = df['Modelo_Avion'].value_counts().head(10)
             c1.plotly_chart(px.bar(top_av, orientation='h', title="Aviones Top"), use_container_width=True)
