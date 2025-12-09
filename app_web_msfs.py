@@ -163,7 +163,7 @@ def obtener_coords(icao):
 def obtener_metar(icao_code):
     """Función METAR robusta."""
     if not icao_code or len(icao_code) != 4:
-        return "❌ Código ICAO no válido. Debe tener 4 letras."
+        return None, "❌ Código ICAO no válido. Debe tener 4 letras."
         
     url = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{icao_code.upper()}.TXT"
     
@@ -187,18 +187,14 @@ def obtener_metar(icao_code):
             if raw_metar == "METAR no encontrado." and len(lines) > 0:
                  raw_metar = " ".join(lines)
 
-            resultado = (
-                f"--- ☁️ METAR de **{icao_code.upper()}** ---\n"
-                f"**Hora de Obs:** {fecha_obs}\n\n"
-                f"**Raw:** `{raw_metar}`"
-            )
-            return resultado
+            # Devolvemos la fecha y el METAR crudo
+            return (fecha_obs, raw_metar), None
         elif response.status_code == 404:
-            return f"❌ No se encontró METAR para {icao_code.upper()}. (Código 404)"
+            return None, f"❌ No se encontró METAR para {icao_code.upper()}. (Código 404)"
         else:
-            return f"❌ Error al obtener datos. Código de estado: {response.status_code}"
+            return None, f"❌ Error al obtener datos. Código de estado: {response.status_code}"
     except requests.exceptions.RequestException as e:
-        return f"❌ Error de conexión al obtener METAR: {e}"
+        return None, f"❌ Error de conexión al obtener METAR: {e}"
 
 # --- 3. INTERFAZ GRÁFICA (STREAMLIT) ---
 
@@ -333,12 +329,66 @@ def main_app():
             if rutas_dibujadas < len(df):
                 st.caption("Nota: Solo se muestran rutas entre aeropuertos que el sistema conoce por coordenadas.")
 
-    # --- PESTAÑA 4: METAR ---
+    # --- PESTAÑA 4: METAR (CON TABLA DE AYUDA) ---
     elif menu == "☁️ METAR":
-        st.header("Consulta Meteorológica")
-        icao = st.text_input("ICAO (4 letras)", max_chars=4).upper()
-        if st.button("Buscar"):
-            st.markdown(obtener_metar(icao))
+        st.header("Consulta Meteorológica y Referencia")
+        
+        col_search, col_res = st.columns([1, 2])
+        
+        with col_search:
+            icao = st.text_input("Ingresa ICAO (4 letras)", max_chars=4, placeholder="Ej: SCEL").upper()
+            buscar = st.button("Buscar METAR", use_container_width=True)
+
+        if buscar and icao:
+            datos, error = obtener_metar(icao)
+            if datos:
+                fecha_obs, raw_metar = datos
+                st.success(f"Reporte encontrado para **{icao}**")
+                st.info(f"📅 **Observación:** {fecha_obs}\n\n📝 **METAR:** `{raw_metar}`")
+            else:
+                st.error(error)
+        
+        st.markdown("---")
+        st.subheader("💡 Guía Rápida para Decodificar (Cheat Sheet)")
+        
+        # Tabla de ayuda visual
+        col_t1, col_t2 = st.columns(2)
+        
+        with col_t1:
+            st.markdown("""
+            **1. VIENTO (KT - Nudos)**
+            * `36015KT` → 360° a 15 nudos.
+            * `VRB03KT` → Dirección Variable a 3 nudos.
+            * `27015G25KT` → 270° a 15, **G** (Ráfagas) de 25.
+            
+            **2. VISIBILIDAD**
+            * `9999` → 10 km o más (OK).
+            * `4000` → 4000 metros.
+            * `0800` → 800 metros (Baja visibilidad).
+            * `CAVOK` → Visibilidad OK, sin nubes importantes.
+            
+            **3. TIEMPO PRESENTE**
+            * `RA` Lluvia | `DZ` Llovisna | `SN` Nieve
+            * `TS` Tormenta | `FG` Niebla | `HZ` Bruma
+            * `+RA` Lluvia Fuerte | `-RA` Lluvia Ligera
+            """)
+
+        with col_t2:
+            st.markdown("""
+            **4. NUBES (Altitud x 100 pies)**
+            * `FEW030` → Escasas a 3000 ft.
+            * `SCT040` → Dispersas a 4000 ft.
+            * `BKN050` → Fragmentadas a 5000 ft (Ceiling).
+            * `OVC080` → Cubierto a 8000 ft.
+            
+            **5. TEMPERATURA / ROCÍO**
+            * `22/15` → Temp 22°C / Rocío 15°C.
+            * `M02/M05` → M es Minus (Bajo Cero).
+            
+            **6. PRESIÓN (QNH)**
+            * `Q1013` → 1013 Hectopascales (Estándar).
+            * `A2992` → 29.92 Pulgadas de Mercurio (USA).
+            """)
 
     # --- PESTAÑA 5: ESTADÍSTICAS ---
     elif menu == "📊 Estadísticas":
