@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 
 # --- 1. BASES DE DATOS Y CONFIGURACIÓN ---
 
-# Coordenadas de Aeropuertos Principales (Para el mapa)
 AIRPORT_COORDS = {
     "KJFK": [40.6413, -73.7781], "EGLL": [51.4700, -0.4543], "SCEL": [-33.3930, -70.7858],
     "SAEZ": [-34.8222, -58.5358], "LEMD": [40.4722, -3.5609], "SKBO": [4.7016, -74.1469],
@@ -22,7 +21,6 @@ AIRPORT_COORDS = {
 
 # --- LISTAS DEFINITIVAS ---
 
-# Lista Masiva de Aerolíneas
 AEROLINEAS_BASE = [
     "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
     "Air Europa", "Air France", "Air India", "Air New Zealand", "Air Transat", "Alaska Airlines", 
@@ -44,37 +42,14 @@ AEROLINEAS_BASE = [
     "Vueling", "WestJet", "Wizz Air", "XiamenAir"
 ]
 
-# Lista Específica de Modelos de Avión
 MODELOS_AVION = [
-    "ATR 42-600",
-    "ATR 72-600",
-    "Airbus A319",
-    "Airbus A320",
-    "Airbus A320 Neo",
-    "Airbus A321 Neo",
-    "Airbus A330-900",
-    "Airbus A340-600",
-    "Airbus A350-900",
-    "Airbus A350-1000",
-    "Airbus A380-800",
-    "Boeing 737-600",
-    "Boeing 737-700",
-    "Boeing 737-800",
-    "Boeing 737-900",
-    "Boeing 747-8",
-    "Boeing 777-200",
-    "Boeing 777-200LR",
-    "Boeing 777-300ER",
-    "Boeing 777F",
-    "Boeing 787-8",
-    "Boeing 787-9",
-    "Boeing 787-10",
-    "Embraer E170",
-    "Embraer E190",
-    "Embraer E195"
+    "ATR 42-600", "ATR 72-600", "Airbus A319", "Airbus A320", "Airbus A320 Neo", "Airbus A321 Neo", 
+    "Airbus A330-900", "Airbus A340-600", "Airbus A350-900", "Airbus A350-1000", "Airbus A380-800", 
+    "Boeing 737-600", "Boeing 737-700", "Boeing 737-800", "Boeing 737-900", "Boeing 747-8", 
+    "Boeing 777-200", "Boeing 777-200LR", "Boeing 777-300ER", "Boeing 777F", "Boeing 787-8", 
+    "Boeing 787-9", "Boeing 787-10", "Embraer E170", "Embraer E190", "Embraer E195"
 ]
 
-# Base de Datos de Checklists
 CHECKLISTS_DB = {
     "Airbus (Familia A320/A330)": {
         "Cockpit Prep": ["Batteries 1 & 2: ON", "Ext Pwr: ON (if avail)", "ADIRS: NAV", "Ext Lt: NAV/LOGO"],
@@ -98,7 +73,6 @@ CHECKLISTS_DB = {
 }
 
 NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
-# Modificado: Agregadas Puerta_Salida y Puerta_Llegada
 ENCABEZADOS_CSV = [
     "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
     "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta_Salida", "Puerta_Llegada", "Notas"
@@ -117,7 +91,6 @@ def leer_vuelos():
     except: return pd.DataFrame()
 
 def calcular_rango_xp(df):
-    """Calcula el rango basado en horas totales."""
     if df.empty: horas = 0
     else: 
         df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce').fillna(0)
@@ -144,23 +117,15 @@ def obtener_datos_simbrief(username):
             destination = dest_data.get('icao_code', '')
             flight_no = f"{general.get('icao_airline', '')}{general.get('flight_number', '')}"
             route = general.get('route', '')
-            
-            # Intentar obtener puertas si SimBrief las provee
             gate_out = origin_data.get('gate', '')
             gate_in = dest_data.get('gate', '')
-
             times = data.get('times', {})
             est_time = int(times.get('est_block', 0)) / 3600
             
             return {
-                "origen": origin, 
-                "destino": destination, 
-                "no_vuelo": flight_no,
-                "ruta": route, 
-                "tiempo_est": est_time, 
-                "aerolinea_icao": general.get('icao_airline', ''),
-                "puerta_salida": gate_out,
-                "puerta_llegada": gate_in
+                "origen": origin, "destino": destination, "no_vuelo": flight_no,
+                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', ''),
+                "puerta_salida": gate_out, "puerta_llegada": gate_in
             }, None
         else: return None, "Error al conectar con SimBrief."
     except Exception as e: return None, f"Excepción: {e}"
@@ -175,268 +140,191 @@ def obtener_aerolineas_inteligente():
 def obtener_coords(icao):
     return AIRPORT_COORDS.get(icao, None)
 
-def obtener_metar(icao_code):
-    """Función METAR robusta."""
+def obtener_clima(icao_code):
+    """Obtiene METAR y TAF."""
     if not icao_code or len(icao_code) != 4:
-        return None, "❌ Código ICAO no válido. Debe tener 4 letras."
+        return None, "❌ ICAO inválido."
         
-    url = f"https://tgftp.nws.noaa.gov/data/observations/metar/stations/{icao_code.upper()}.TXT"
+    base_url = "https://tgftp.nws.noaa.gov/data/observations/metar/stations"
+    taf_url = "https://tgftp.nws.noaa.gov/data/forecasts/taf/stations"
     
+    headers = {'User-Agent': 'MSFS2020-App/1.0'}
+    
+    # METAR
     try:
-        headers = {'User-Agent': 'MSFS2020-Companion-App/1.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        r_metar = requests.get(f"{base_url}/{icao_code.upper()}.TXT", headers=headers, timeout=5)
+        raw_metar = r_metar.text.strip().split('\n')[1] if r_metar.status_code == 200 else "No disponible"
+    except: raw_metar = "Error conexión"
+
+    # TAF
+    try:
+        r_taf = requests.get(f"{taf_url}/{icao_code.upper()}.TXT", headers=headers, timeout=5)
+        raw_taf = "\n".join(r_taf.text.strip().split('\n')[1:]) if r_taf.status_code == 200 else "No disponible"
+    except: raw_taf = "Error conexión"
+    
+    if raw_metar == "No disponible" and raw_taf == "No disponible":
+        return None, "❌ No se encontraron datos para esa estación."
         
-        if response.status_code == 200:
-            lines = response.text.strip().split('\n')
-            
-            fecha_obs = "Fecha desconocida"
-            raw_metar = "METAR no encontrado."
-            
-            for line in lines:
-                line = line.strip()
-                if line.startswith('20'):
-                    fecha_obs = line
-                elif line.startswith(icao_code.upper()) or "KT" in line:
-                    raw_metar = line
+    return (raw_metar, raw_taf), None
 
-            if raw_metar == "METAR no encontrado." and len(lines) > 0:
-                 raw_metar = " ".join(lines)
-
-            return (fecha_obs, raw_metar), None
-        elif response.status_code == 404:
-            return None, f"❌ No se encontró METAR para {icao_code.upper()}. (Código 404)"
-        else:
-            return None, f"❌ Error al obtener datos. Código de estado: {response.status_code}"
-    except requests.exceptions.RequestException as e:
-        return None, f"❌ Error de conexión al obtener METAR: {e}"
-
-# --- 3. INTERFAZ GRÁFICA (STREAMLIT) ---
+# --- 3. INTERFAZ GRÁFICA ---
 
 def main_app():
-    st.set_page_config(page_title="MSFS EFB Pro", layout="wide", page_icon="✈️")
+    st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
     crear_archivo_csv()
 
-    # --- SIDEBAR ---
-    st.sidebar.title("👨‍✈️ Perfil de Piloto")
+    # SIDEBAR
+    st.sidebar.title("👨‍✈️ Perfil")
     df_log = leer_vuelos()
     rango, icono, horas_act, horas_next = calcular_rango_xp(df_log)
-    
     st.sidebar.markdown(f"### {icono} {rango}")
     st.sidebar.metric("Horas Totales", f"{horas_act:.1f} h")
     if horas_next != 1000:
-        progreso = min(horas_act / horas_next, 1.0)
-        st.sidebar.progress(progreso)
-        st.sidebar.caption(f"Próximo rango en {horas_next - horas_act:.1f} horas")
+        st.sidebar.progress(min(horas_act / horas_next, 1.0))
+        st.sidebar.caption(f"Próximo rango en {horas_next - horas_act:.1f} h")
     
     st.sidebar.markdown("---")
-    menu = st.sidebar.radio("EFB Menu", ["📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa de Rutas", "☁️ METAR", "📊 Estadísticas"])
+    menu = st.sidebar.radio("EFB Menu", ["📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa", "☁️ Clima (METAR/TAF)", "🧰 Herramientas", "📊 Estadísticas"])
 
-    # --- PESTAÑA 1: REGISTRO ---
+    # 1. REGISTRO
     if menu == "📋 Registro de Vuelo":
-        st.header("📋 Registrar Vuelo / Importar OFP")
-        
-        # Inicialización de estado con las nuevas variables de puertas
+        st.header("📋 Registrar Vuelo / SimBrief")
         if 'form_data' not in st.session_state:
-            st.session_state.form_data = {
-                "origen": "", "destino": "", "ruta": "", 
-                "no_vuelo": "", "tiempo": 0.0,
-                "puerta_salida": "", "puerta_llegada": ""
-            }
+            st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "tiempo": 0.0, "puerta_salida": "", "puerta_llegada": ""}
 
-        with st.expander("📥 Importar desde SimBrief", expanded=True):
-            col_sb1, col_sb2 = st.columns([3, 1])
-            sb_user = col_sb1.text_input("Usuario SimBrief", placeholder="Ej: JSmith")
-            if col_sb2.button("Importar OFP"):
-                datos_sb, error = obtener_datos_simbrief(sb_user)
-                if datos_sb:
-                    st.session_state.form_data.update(datos_sb)
-                    st.session_state.form_data["tiempo"] = datos_sb["tiempo_est"]
-                    st.success("✅ Datos cargados.")
-                else:
-                    st.error(error)
+        with st.expander("📥 Importar SimBrief", expanded=True):
+            c1, c2 = st.columns([3, 1])
+            sb_user = c1.text_input("Usuario SimBrief")
+            if c2.button("Importar"):
+                datos, err = obtener_datos_simbrief(sb_user)
+                if datos:
+                    st.session_state.form_data.update(datos)
+                    st.session_state.form_data["tiempo"] = datos["tiempo_est"]
+                    st.success("Cargado.")
+                else: st.error(err)
 
-        with st.form("flight_form"):
-            col1, col2, col3 = st.columns(3)
-            with col1:
+        with st.form("vuelo"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
                 fecha = st.date_input("Fecha", value=datetime.now())
-                origen = st.text_input("Origen (ICAO)", value=st.session_state.form_data["origen"]).upper()
-                destino = st.text_input("Destino (ICAO)", value=st.session_state.form_data["destino"]).upper()
+                origen = st.text_input("Origen", value=st.session_state.form_data["origen"]).upper()
+                destino = st.text_input("Destino", value=st.session_state.form_data["destino"]).upper()
                 modelo = st.selectbox("Avión", MODELOS_AVION)
-            
-            with col2:
-                h_out = st.text_input("Hora OUT (UTC HHMM)", max_chars=4)
-                h_in = st.text_input("Hora IN (UTC HHMM)", max_chars=4)
-                t_manual = st.number_input("Tiempo (Horas)", min_value=0.0, step=0.1, value=st.session_state.form_data["tiempo"])
-            
-            with col3:
+            with c2:
+                h_out = st.text_input("Hora OUT (UTC)", max_chars=4)
+                h_in = st.text_input("Hora IN (UTC)", max_chars=4)
+                tiempo = st.number_input("Horas", step=0.1, value=st.session_state.form_data["tiempo"])
+            with c3:
                 lista_aero = obtener_aerolineas_inteligente()
-                manual_aero = st.checkbox("¿Aerolínea nueva?")
-                if manual_aero: aerolinea = st.text_input("Nombre Aerolínea")
-                else: aerolinea = st.selectbox("Aerolínea", lista_aero)
-                vuelo_num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
-                
-                # Nuevos inputs de puertas divididos en dos columnas dentro de la columna 3
-                cp1, cp2 = st.columns(2)
-                with cp1:
-                    gate_out = st.text_input("Puerta Salida", value=st.session_state.form_data["puerta_salida"])
-                with cp2:
-                    gate_in = st.text_input("Puerta Llegada", value=st.session_state.form_data["puerta_llegada"])
-
+                if st.checkbox("¿Nueva Aerolínea?"): aero = st.text_input("Nombre")
+                else: aero = st.selectbox("Aerolínea", lista_aero)
+                num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
+                g1, g2 = st.columns(2)
+                p_out = g1.text_input("Gate Salida", value=st.session_state.form_data["puerta_salida"])
+                p_in = g2.text_input("Gate Llegada", value=st.session_state.form_data["puerta_llegada"])
+            
             ruta = st.text_area("Ruta", value=st.session_state.form_data["ruta"])
             notas = st.text_area("Notas")
             
-            if st.form_submit_button("Guardar en Logbook 💾"):
-                tiempo_final = t_manual
-                if h_out and h_in and len(h_out)==4 and len(h_in)==4:
-                    try:
-                        d_out = datetime.strptime(h_out, "%H%M")
-                        d_in = datetime.strptime(h_in, "%H%M")
-                        if d_in < d_out: d_in += timedelta(days=1)
-                        tiempo_final = (d_in - d_out).total_seconds() / 3600
-                    except: pass
-                
-                if tiempo_final > 0 and origen and destino:
-                    # Estructura actualizada para guardar las 2 puertas
-                    nuevo_vuelo = [
-                        fecha, origen, destino, ruta, aerolinea, vuelo_num, modelo, 
-                        h_out, h_in, f"{tiempo_final:.2f}", 0, gate_out, gate_in, notas
-                    ]
-                    with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f:
-                        csv.writer(f).writerow(nuevo_vuelo)
-                    st.success("Vuelo registrado y XP sumada!")
-                else:
-                    st.error("Faltan datos obligatorios.")
+            if st.form_submit_button("Guardar Vuelo 💾"):
+                if tiempo > 0 and origen and destino:
+                    row = [fecha, origen, destino, ruta, aero, num, modelo, h_out, h_in, f"{tiempo:.2f}", 0, p_out, p_in, notas]
+                    with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f: csv.writer(f).writerow(row)
+                    st.success("Registrado!")
+                else: st.error("Faltan datos.")
 
-    # --- PESTAÑA 2: CHECKLISTS ---
+    # 2. CHECKLISTS
     elif menu == "✅ Checklists":
-        st.header("✅ Listas de Chequeo Interactivas")
-        tipo_avion = st.selectbox("Selecciona la lista:", list(CHECKLISTS_DB.keys()))
-        checklist_data = CHECKLISTS_DB[tipo_avion]
-        col_list1, col_list2 = st.columns(2)
-        fases = list(checklist_data.keys())
-        mitad = len(fases) // 2
-        
-        with col_list1:
-            for fase in fases[:mitad]:
-                with st.expander(fase, expanded=True):
-                    for item in checklist_data[fase]:
-                        st.checkbox(item, key=f"{tipo_avion}_{fase}_{item}")
-        with col_list2:
-            for fase in fases[mitad:]:
-                with st.expander(fase, expanded=True):
-                    for item in checklist_data[fase]:
-                        st.checkbox(item, key=f"{tipo_avion}_{fase}_{item}")
-        
-        if st.button("Reiniciar"):
-            st.rerun()
+        st.header("✅ Listas de Chequeo")
+        avion = st.selectbox("Avión:", list(CHECKLISTS_DB.keys()))
+        data = CHECKLISTS_DB[avion]
+        c1, c2 = st.columns(2)
+        items = list(data.items())
+        half = len(items)//2
+        for k, v in items[:half]: 
+            with c1.expander(k, True): 
+                for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
+        for k, v in items[half:]: 
+            with c2.expander(k, True): 
+                for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
+        if st.button("Reset"): st.rerun()
 
-    # --- PESTAÑA 3: MAPA ---
-    elif menu == "🗺️ Mapa de Rutas":
-        st.header("🗺️ Mis Rutas Voladas")
+    # 3. MAPA
+    elif menu == "🗺️ Mapa":
+        st.header("🗺️ Historial de Rutas")
         df = leer_vuelos()
-        if df.empty:
-            st.info("Registra vuelos para verlos en el mapa.")
-        else:
-            m = folium.Map(location=[20, -40], zoom_start=2, tiles="CartoDB dark_matter")
-            rutas_dibujadas = 0
-            for index, row in df.iterrows():
+        if not df.empty:
+            m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
+            for _, r in df.iterrows():
                 try:
-                    orig = row['Origen'].upper().strip()
-                    dest = row['Destino'].upper().strip()
-                    c1 = obtener_coords(orig)
-                    c2 = obtener_coords(dest)
+                    c1, c2 = obtener_coords(r['Origen']), obtener_coords(r['Destino'])
                     if c1 and c2:
                         folium.PolyLine([c1, c2], color="#39ff14", weight=2, opacity=0.7).add_to(m)
-                        folium.CircleMarker(c1, radius=3, color="white", fill=True).add_to(m)
-                        folium.CircleMarker(c2, radius=3, color="white", fill=True).add_to(m)
-                        rutas_dibujadas += 1
-                except: continue
+                        folium.CircleMarker(c1, radius=2, color="white").add_to(m)
+                        folium.CircleMarker(c2, radius=2, color="white").add_to(m)
+                except: pass
             st_folium(m, width=1000, height=500)
-            if rutas_dibujadas < len(df):
-                st.caption("Nota: Solo se muestran rutas entre aeropuertos que el sistema conoce por coordenadas.")
+        else: st.info("Sin vuelos registrados.")
 
-    # --- PESTAÑA 4: METAR (CON TABLA DE AYUDA) ---
-    elif menu == "☁️ METAR":
-        st.header("Consulta Meteorológica y Referencia")
-        
-        col_search, col_res = st.columns([1, 2])
-        
-        with col_search:
-            icao = st.text_input("Ingresa ICAO (4 letras)", max_chars=4, placeholder="Ej: SCEL").upper()
-            buscar = st.button("Buscar METAR", use_container_width=True)
-
-        if buscar and icao:
-            datos, error = obtener_metar(icao)
+    # 4. CLIMA (METAR/TAF)
+    elif menu == "☁️ Clima (METAR/TAF)":
+        st.header("🌤️ Centro Meteorológico")
+        c_search, c_res = st.columns([1, 2])
+        icao = c_search.text_input("ICAO", max_chars=4).upper()
+        if c_search.button("Buscar") and icao:
+            datos, err = obtener_clima(icao)
             if datos:
-                fecha_obs, raw_metar = datos
-                st.success(f"Reporte encontrado para **{icao}**")
-                st.info(f"📅 **Observación:** {fecha_obs}\n\n📝 **METAR:** `{raw_metar}`")
-            else:
-                st.error(error)
+                metar, taf = datos
+                st.subheader(f"Reporte: {icao}")
+                st.info(f"**METAR (Actual):**\n`{metar}`")
+                st.warning(f"**TAF (Pronóstico):**\n`{taf}`")
+            else: st.error(err)
         
         st.markdown("---")
-        st.subheader("💡 Guía Rápida para Decodificar (Cheat Sheet)")
-        
-        # Tabla de ayuda visual
-        col_t1, col_t2 = st.columns(2)
-        
-        with col_t1:
-            st.markdown("""
-            **1. VIENTO (KT - Nudos)**
-            * `36015KT` → 360° a 15 nudos.
-            * `VRB03KT` → Dirección Variable a 3 nudos.
-            * `27015G25KT` → 270° a 15, **G** (Ráfagas) de 25.
-            
-            **2. VISIBILIDAD**
-            * `9999` → 10 km o más (OK).
-            * `4000` → 4000 metros.
-            * `0800` → 800 metros (Baja visibilidad).
-            * `CAVOK` → Visibilidad OK, sin nubes importantes.
-            
-            **3. TIEMPO PRESENTE**
-            * `RA` Lluvia | `DZ` Llovisna | `SN` Nieve
-            * `TS` Tormenta | `FG` Niebla | `HZ` Bruma
-            * `+RA` Lluvia Fuerte | `-RA` Lluvia Ligera
-            """)
+        st.caption("Guía Rápida: KT=Nudos | RA=Lluvia | FG=Niebla | FEW/SCT/BKN/OVC=Nubes | Q1013=Presión")
 
-        with col_t2:
-            st.markdown("""
-            **4. NUBES (Altitud x 100 pies)**
-            * `FEW030` → Escasas a 3000 ft.
-            * `SCT040` → Dispersas a 4000 ft.
-            * `BKN050` → Fragmentadas a 5000 ft (Ceiling).
-            * `OVC080` → Cubierto a 8000 ft.
+    # 5. HERRAMIENTAS (NUEVO)
+    elif menu == "🧰 Herramientas":
+        st.header("🧰 Herramientas de Vuelo")
+        
+        t1, t2 = st.tabs(["📉 Calc. Descenso (TOD)", "🔄 Conversor Unidades"])
+        
+        with t1:
+            st.subheader("Calculadora Top of Descent")
+            st.write("Regla del 3: (Altitud Actual - Altitud Objetivo) * 3 / 1000")
+            c_alt, c_tgt = st.columns(2)
+            alt_act = c_alt.number_input("Altitud Actual (pies)", value=35000, step=1000)
+            alt_tgt = c_tgt.number_input("Altitud Objetivo (pies)", value=3000, step=1000)
             
-            **5. TEMPERATURA / ROCÍO**
-            * `22/15` → Temp 22°C / Rocío 15°C.
-            * `M02/M05` → M es Minus (Bajo Cero).
+            if alt_act > alt_tgt:
+                distancia = (alt_act - alt_tgt) * 3 / 1000
+                st.success(f"📍 Comienza a descender a **{distancia:.0f} Millas Náuticas (NM)** del destino.")
+                st.info(f"Régimen estimado (Velocidad Terrestre x 5): Si vas a 400kts GS, desciende a **{400*5} fpm**.")
             
-            **6. PRESIÓN (QNH)**
-            * `Q1013` → 1013 Hectopascales (Estándar).
-            * `A2992` → 29.92 Pulgadas de Mercurio (USA).
-            """)
+        with t2:
+            st.subheader("Conversor Rápido")
+            cc1, cc2 = st.columns(2)
+            kg = cc1.number_input("Kilogramos (kg)", value=0)
+            lbs = cc1.number_input("Libras (lbs)", value=kg * 2.20462)
+            st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
+            
+            st.markdown("---")
+            hpa = cc2.number_input("Hectopascales (hPa/mb)", value=1013)
+            inhg = cc2.number_input("Pulgadas Hg (inHg)", value=hpa * 0.02953)
+            st.caption(f"{hpa} hPa = {hpa*0.02953:.2f} inHg")
 
-    # --- PESTAÑA 5: ESTADÍSTICAS ---
+    # 6. ESTADÍSTICAS
     elif menu == "📊 Estadísticas":
-        st.header("📊 Tu Carrera en Números")
+        st.header("📊 Estadísticas")
         df = leer_vuelos()
         if not df.empty:
             c1, c2 = st.columns(2)
-            with c1:
-                st.subheader("Aviones Favoritos")
-                if 'Modelo_Avion' in df.columns:
-                    top_aviones = df['Modelo_Avion'].value_counts().head(10)
-                    fig = px.bar(top_aviones, orientation='h', color=top_aviones.values)
-                    st.plotly_chart(fig, use_container_width=True)
-            with c2:
-                st.subheader("Aerolíneas")
-                if 'Aerolinea' in df.columns:
-                    top_aero = df['Aerolinea'].value_counts().head(10)
-                    fig2 = px.pie(values=top_aero.values, names=top_aero.index, hole=0.4)
-                    st.plotly_chart(fig2, use_container_width=True)
+            top_av = df['Modelo_Avion'].value_counts().head(10)
+            c1.plotly_chart(px.bar(top_av, orientation='h', title="Aviones Top"), use_container_width=True)
+            top_ae = df['Aerolinea'].value_counts().head(10)
+            c2.plotly_chart(px.pie(values=top_ae.values, names=top_ae.index, title="Aerolíneas"), use_container_width=True)
             st.dataframe(df)
-        else:
-            st.info("Sin datos.")
+        else: st.info("Registra vuelos para ver datos.")
 
 if __name__ == "__main__":
     main_app()
