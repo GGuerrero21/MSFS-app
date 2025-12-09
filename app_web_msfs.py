@@ -20,7 +20,7 @@ AIRPORT_COORDS = {
     "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021]
 }
 
-# --- LISTAS DEFINITIVAS (NO TOCAR) ---
+# --- LISTAS DEFINITIVAS ---
 
 # Lista Masiva de Aerolíneas
 AEROLINEAS_BASE = [
@@ -98,9 +98,10 @@ CHECKLISTS_DB = {
 }
 
 NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
+# Modificado: Agregadas Puerta_Salida y Puerta_Llegada
 ENCABEZADOS_CSV = [
     "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
-    "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta", "Notas"
+    "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta_Salida", "Puerta_Llegada", "Notas"
 ]
 
 # --- 2. FUNCIONES DE LÓGICA ---
@@ -136,16 +137,30 @@ def obtener_datos_simbrief(username):
         if r.status_code == 200:
             data = r.json()
             general = data.get('general', {})
-            origin = data.get('origin', {}).get('icao_code', '')
-            destination = data.get('destination', {}).get('icao_code', '')
+            origin_data = data.get('origin', {})
+            dest_data = data.get('destination', {})
+            
+            origin = origin_data.get('icao_code', '')
+            destination = dest_data.get('icao_code', '')
             flight_no = f"{general.get('icao_airline', '')}{general.get('flight_number', '')}"
             route = general.get('route', '')
+            
+            # Intentar obtener puertas si SimBrief las provee
+            gate_out = origin_data.get('gate', '')
+            gate_in = dest_data.get('gate', '')
+
             times = data.get('times', {})
             est_time = int(times.get('est_block', 0)) / 3600
             
             return {
-                "origen": origin, "destino": destination, "no_vuelo": flight_no,
-                "ruta": route, "tiempo_est": est_time, "aerolinea_icao": general.get('icao_airline', '')
+                "origen": origin, 
+                "destino": destination, 
+                "no_vuelo": flight_no,
+                "ruta": route, 
+                "tiempo_est": est_time, 
+                "aerolinea_icao": general.get('icao_airline', ''),
+                "puerta_salida": gate_out,
+                "puerta_llegada": gate_in
             }, None
         else: return None, "Error al conectar con SimBrief."
     except Exception as e: return None, f"Excepción: {e}"
@@ -187,7 +202,6 @@ def obtener_metar(icao_code):
             if raw_metar == "METAR no encontrado." and len(lines) > 0:
                  raw_metar = " ".join(lines)
 
-            # Devolvemos la fecha y el METAR crudo
             return (fecha_obs, raw_metar), None
         elif response.status_code == 404:
             return None, f"❌ No se encontró METAR para {icao_code.upper()}. (Código 404)"
@@ -221,8 +235,13 @@ def main_app():
     if menu == "📋 Registro de Vuelo":
         st.header("📋 Registrar Vuelo / Importar OFP")
         
+        # Inicialización de estado con las nuevas variables de puertas
         if 'form_data' not in st.session_state:
-            st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "tiempo": 0.0}
+            st.session_state.form_data = {
+                "origen": "", "destino": "", "ruta": "", 
+                "no_vuelo": "", "tiempo": 0.0,
+                "puerta_salida": "", "puerta_llegada": ""
+            }
 
         with st.expander("📥 Importar desde SimBrief", expanded=True):
             col_sb1, col_sb2 = st.columns([3, 1])
@@ -255,7 +274,13 @@ def main_app():
                 if manual_aero: aerolinea = st.text_input("Nombre Aerolínea")
                 else: aerolinea = st.selectbox("Aerolínea", lista_aero)
                 vuelo_num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
-                puerta = st.text_input("Puerta")
+                
+                # Nuevos inputs de puertas divididos en dos columnas dentro de la columna 3
+                cp1, cp2 = st.columns(2)
+                with cp1:
+                    gate_out = st.text_input("Puerta Salida", value=st.session_state.form_data["puerta_salida"])
+                with cp2:
+                    gate_in = st.text_input("Puerta Llegada", value=st.session_state.form_data["puerta_llegada"])
 
             ruta = st.text_area("Ruta", value=st.session_state.form_data["ruta"])
             notas = st.text_area("Notas")
@@ -271,9 +296,10 @@ def main_app():
                     except: pass
                 
                 if tiempo_final > 0 and origen and destino:
+                    # Estructura actualizada para guardar las 2 puertas
                     nuevo_vuelo = [
                         fecha, origen, destino, ruta, aerolinea, vuelo_num, modelo, 
-                        h_out, h_in, f"{tiempo_final:.2f}", 0, puerta, notas
+                        h_out, h_in, f"{tiempo_final:.2f}", 0, gate_out, gate_in, notas
                     ]
                     with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f:
                         csv.writer(f).writerow(nuevo_vuelo)
