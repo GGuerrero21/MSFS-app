@@ -1,10 +1,12 @@
 import streamlit as st
-import csv
+# import csv  <-- YA NO NECESITAMOS CSV
 import requests
 import pandas as pd
 import plotly.express as px
 import folium
 import math
+import gspread # LIBRERIA NUEVA
+from oauth2client.service_account import ServiceAccountCredentials # LIBRERIA NUEVA
 from streamlit_folium import st_folium
 from datetime import datetime
 
@@ -42,7 +44,7 @@ AEROLINEAS_BASE = [
 ]
 
 MODELOS_AVION = [
-    "ATR 42-600", "ATR 72-600", "Airbus A319", "Airbus A320", "Airbus A320 Neo", "Airbus A321 Neo", 
+    "Avro RJ/BAe 146", "ATR 42-600", "ATR 72-600", "Airbus A319", "Airbus A320", "Airbus A320 Neo", "Airbus A321 Neo", 
     "Airbus A330-900", "Airbus A340-600", "Airbus A350-900", "Airbus A350-1000", "Airbus A380-800", 
     "Boeing 737-600", "Boeing 737-700", "Boeing 737-800", "Boeing 737-900", "Boeing 747-8", 
     "Boeing 777-200", "Boeing 777-200LR", "Boeing 777-300ER", "Boeing 777F", "Boeing 787-8", 
@@ -71,29 +73,72 @@ CHECKLISTS_DB = {
     }
 }
 
-NOMBRE_ARCHIVO = 'mis_vuelos_msfs2020.csv'
-ENCABEZADOS_CSV = [
-    "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "No_Vuelo", "Modelo_Avion", 
-    "Hora_OUT_UTC", "Hora_IN_UTC", "Tiempo_Vuelo_Horas", "Distancia_NM", "Puerta_Salida", "Puerta_Llegada", "Landing_Rate_FPM", "Notas"
-]
+# --- 2. FUNCIONES LÓGICAS (MODIFICADO PARA GOOGLE SHEETS) ---
 
-# --- 2. FUNCIONES LÓGICAS ---
+# Configuración de conexión
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-def crear_archivo_csv():
+@st.cache_resource
+def conectar_google_sheets():
+    """Conecta con Google Sheets usando los secretos de Streamlit"""
     try:
-        with open(NOMBRE_ARCHIVO, mode='x', newline='', encoding='utf-8') as archivo:
-            csv.writer(archivo).writerow(ENCABEZADOS_CSV)
-    except FileExistsError: pass
+        if "gcp_service_account" not in st.secrets:
+            st.error("⚠️ No se encontraron los secretos de Google Cloud. Configúralos en Streamlit Cloud.")
+            return None
+        
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
+        client = gspread.authorize(creds)
+        # Abre la hoja llamada 'FlightLogbook'
+        sheet = client.open("FlightLogbook").sheet1 
+        return sheet
+    except Exception as e:
+        st.error(f"Error conectando a Google Sheets: {e}")
+        return None
 
 def leer_vuelos():
-    try: return pd.read_csv(NOMBRE_ARCHIVO)
-    except: return pd.DataFrame()
+    """Lee los datos directamente desde Google Sheets"""
+    sheet = conectar_google_sheets()
+    if sheet:
+        try:
+            data = sheet.get_all_records()
+            df = pd.DataFrame(data)
+            
+            # Si el DataFrame está vacío, retornamos vacío
+            if df.empty: return pd.DataFrame()
+
+            # Asegurar que las columnas numéricas sean números (Google Sheets a veces devuelve texto)
+            cols_num = ['Tiempo_Vuelo_Horas', 'Distancia_NM', 'Landing_Rate_FPM']
+            for col in cols_num:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            return df
+        except Exception as e:
+            st.error(f"Error leyendo datos: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+def guardar_vuelo_gs(row_data):
+    """Guarda una nueva fila en Google Sheets"""
+    sheet = conectar_google_sheets()
+    if sheet:
+        try:
+            # Convertimos todo a string para evitar errores de formato JSON
+            row_str = [str(x) for x in row_data]
+            sheet.append_row(row_str)
+            return True
+        except Exception as e:
+            st.error(f"Error guardando: {e}")
+            return False
+    return False
 
 def calcular_rango_xp(df):
     if df.empty: horas = 0
     else: 
-        df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce').fillna(0)
-        horas = df['Tiempo_Vuelo_Horas'].sum()
+        if 'Tiempo_Vuelo_Horas' in df.columns:
+            df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce').fillna(0)
+            horas = df['Tiempo_Vuelo_Horas'].sum()
+        else:
+            horas = 0
     
     if horas < 10: return "Cadete", "🎓", horas, 10
     elif horas < 50: return "Primer Oficial", "👨‍✈️", horas, 50
@@ -179,7 +224,7 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
 
 def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
-    crear_archivo_csv()
+    # crear_archivo_csv() <-- YA NO ES NECESARIO
 
     # SIDEBAR
     st.sidebar.title("👨‍✈️ Perfil")
@@ -239,9 +284,19 @@ def main_app():
             
             if st.form_submit_button("Guardar Vuelo 💾"):
                 if tiempo > 0 and origen and destino:
+                    # Datos a guardar
                     row = [fecha, origen, destino, ruta, aero, num, modelo, h_out, h_in, f"{tiempo:.2f}", 0, p_out, p_in, l_rate, notas]
-                    with open(NOMBRE_ARCHIVO, 'a', newline='', encoding='utf-8') as f: csv.writer(f).writerow(row)
-                    st.success("Registrado!")
+                    
+                    # --- GUARDADO EN GOOGLE SHEETS ---
+                    with st.spinner("Guardando en la nube..."):
+                        exito = guardar_vuelo_gs(row)
+                    
+                    if exito:
+                        st.success("✅ Vuelo registrado en Google Sheets (Permanente)")
+                        # Limpiar formulario (opcional)
+                        # st.session_state.form_data = ...
+                    else:
+                        st.error("Error al guardar en la nube.")
                 else: st.error("Faltan datos.")
 
     # 2. CHECKLISTS
@@ -260,7 +315,7 @@ def main_app():
                 for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
         if st.button("Reset"): st.rerun()
 
-    # 3. MAPA (CORREGIDO)
+    # 3. MAPA
     elif menu == "🗺️ Mapa":
         st.header("🗺️ Historial de Rutas")
         df = leer_vuelos()
@@ -341,31 +396,34 @@ def main_app():
             kg = st.number_input("Kg a Lbs", value=0)
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
 
-    # 6. ESTADÍSTICAS (CORREGIDO)
+    # 6. ESTADÍSTICAS
     elif menu == "📊 Estadísticas":
         st.header("📊 Estadísticas de Piloto")
         df = leer_vuelos()
         if not df.empty:
             # Landing rate seguro
-            df['Landing_Rate_FPM'] = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce')
-            avg_l = df['Landing_Rate_FPM'].mean()
+            if 'Landing_Rate_FPM' in df.columns:
+                df['Landing_Rate_FPM'] = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce')
+                avg_l = df['Landing_Rate_FPM'].mean()
+                st.metric("Promedio de Toque (Landing Rate)", f"{avg_l:.0f} fpm" if not pd.isna(avg_l) else "N/A")
             
-            st.metric("Promedio de Toque (Landing Rate)", f"{avg_l:.0f} fpm" if not pd.isna(avg_l) else "N/A")
             st.markdown("---")
             
             c1, c2 = st.columns(2)
             
             # Gráfico Barras Corregido
-            data_aviones = df['Modelo_Avion'].value_counts().reset_index()
-            data_aviones.columns = ['Modelo', 'Cantidad']
-            fig_bar = px.bar(data_aviones, x='Cantidad', y='Modelo', orientation='h', title="Vuelos por Avión", text='Cantidad')
-            c1.plotly_chart(fig_bar, use_container_width=True)
+            if 'Modelo_Avion' in df.columns:
+                data_aviones = df['Modelo_Avion'].value_counts().reset_index()
+                data_aviones.columns = ['Modelo', 'Cantidad']
+                fig_bar = px.bar(data_aviones, x='Cantidad', y='Modelo', orientation='h', title="Vuelos por Avión", text='Cantidad')
+                c1.plotly_chart(fig_bar, use_container_width=True)
             
             # Gráfico Pastel Corregido
-            data_aero = df['Aerolinea'].value_counts().reset_index()
-            data_aero.columns = ['Aerolinea', 'Vuelos']
-            fig_pie = px.pie(data_aero, values='Vuelos', names='Aerolinea', title="Aerolíneas Preferidas", hole=0.3)
-            c2.plotly_chart(fig_pie, use_container_width=True)
+            if 'Aerolinea' in df.columns:
+                data_aero = df['Aerolinea'].value_counts().reset_index()
+                data_aero.columns = ['Aerolinea', 'Vuelos']
+                fig_pie = px.pie(data_aero, values='Vuelos', names='Aerolinea', title="Aerolíneas Preferidas", hole=0.3)
+                c2.plotly_chart(fig_pie, use_container_width=True)
             
             st.dataframe(df)
         else: st.info("Registra vuelos para ver datos.")
