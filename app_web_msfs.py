@@ -367,8 +367,82 @@ def main_app():
                     else: st.error(err)
         
         with tab2:
-            st.title("🎓 Guía de Lectura METAR")
-            st.markdown("Aquí iría la guía completa...") # Abreviado para no alargar más
+            st.title("🎓 Guía Definitiva de Lectura METAR/TAF")
+            
+            with st.expander("1. Estructura Básica (Ejemplo)", expanded=True):
+                st.markdown("""
+                **Ejemplo:** `SCEL 091400Z 18010KT 9999 SCT030 18/12 Q1016`
+                
+                1.  **Lugar:** `SCEL` (Santiago, Chile).
+                2.  **Fecha/Hora:** `091400Z` -> Día 09, 14:00 Hora Zulú (UTC).
+                3.  **Viento:** `18010KT` -> Dirección 180° a 10 Nudos.
+                4.  **Visibilidad:** `9999` -> Más de 10 kilómetros (OK).
+                5.  **Nubes:** `SCT030` -> Nubes dispersas a 3000 pies.
+                6.  **Temp:** `18/12` -> 18°C temperatura, 12°C punto de rocío.
+                7.  **Presión:** `Q1016` -> 1016 hectopascales.
+                """)
+            
+            with st.expander("2. Fenómenos Meteorológicos (Lluvia, Niebla...)"):
+                st.write("Estos códigos aparecen después de la visibilidad si hay mal tiempo.")
+                cols = st.columns(3)
+                with cols[0]:
+                    st.markdown("**Precipitación**")
+                    st.markdown("""
+                    * `RA`: Lluvia (Rain)
+                    * `SN`: Nieve (Snow)
+                    * `GR`: Granizo
+                    * `DZ`: Llovizna (Drizzle)
+                    """)
+                with cols[1]:
+                    st.markdown("**Oscurecimiento**")
+                    st.markdown("""
+                    * `FG`: Niebla (Fog) < 1km
+                    * `BR`: Neblina (Mist) 1-5km
+                    * `HZ`: Bruma (Haze)
+                    * `FU`: Humo
+                    """)
+                with cols[2]:
+                    st.markdown("**Intensidad / Otros**")
+                    st.markdown("""
+                    * `-`: Ligero (ej: `-RA`)
+                    * `+`: Fuerte (ej: `+RA`)
+                    * `TS`: Tormenta (Thunderstorm)
+                    * `VC`: En vecindad (cerca)
+                    """)
+
+            with st.expander("3. Cobertura de Nubes y Techo"):
+                st.info("⚠️ **Dato Importante:** Se considera 'Techo de Nubes' (Ceiling) a partir de BKN. Si dice FEW o SCT, técnicamente no hay techo.")
+                st.markdown("""
+                | Código | Significado | Cantidad de Cielo Cubierto |
+                | :--- | :--- | :--- |
+                | **FEW** | Escasas | 1/8 a 2/8 |
+                | **SCT** | Dispersas | 3/8 a 4/8 |
+                | **BKN** | Fragmentadas (Ceiling) | 5/8 a 7/8 |
+                | **OVC** | Cubierto (Ceiling) | 8/8 (Cielo tapado) |
+                | **NSC / SKC** | Sin Nubes | Cielo despejado |
+                | **VV** | Visibilidad Vertical | Indefinido (Niebla total) |
+                """)
+                st.caption("Los números siempre indican altura en cientos de pies. `030` = 3000 pies.")
+
+            with st.expander("4. Pronósticos (TAF): BECMG, TEMPO, FM"):
+                st.write("El TAF te dice qué va a pasar en el futuro. Estas son las palabras clave:")
+                st.markdown("""
+                * **BECMG (Becoming):** Cambio **gradual y permanente**.
+                    * *Ej: `BECMG 1012/1014` -> Entre las 12 y las 14Z el clima cambiará y se quedará así.*
+                * **TEMPO (Temporary):** Cambio **temporal**.
+                    * *Ej: `TEMPO 1820 TSRA` -> Entre las 18 y 20Z habrá tormentas por momentos, pero luego volverá a lo normal.*
+                * **FM (From):** Cambio **rápido y total** a partir de una hora.
+                    * *Ej: `FM120000` -> A partir de las 12:00 en punto, el clima será este...*
+                * **PROB30 / PROB40:** Probabilidad del 30% o 40% de que ocurra algo.
+                """)
+
+            with st.expander("5. Códigos Especiales (CAVOK, VRB)"):
+                st.markdown("""
+                * **CAVOK (Ceiling And Visibility OK):** Condiciones ideales. Visibilidad >10km, sin nubes por debajo de 5000ft, sin lluvias.
+                * **VRB (Variable):** El viento cambia de dirección constantemente (generalmente cuando es suave, menos de 5kt).
+                * **G (Gusts):** Ráfagas. Ej: `24015G25KT` (Viento 15 nudos, ráfagas de 25).
+                * **NSW (No Significant Weather):** El mal tiempo ha terminado.
+                """)
 
     # 5. HERRAMIENTAS
     elif menu == "🧰 Herramientas":
@@ -430,4 +504,5 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
