@@ -86,23 +86,20 @@ CHECKLISTS_DB = {
 
 def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
     """
-    Calcula puntos intermedios a lo largo de la ruta más corta (círculo máximo)
-    sobre la superficie de una esfera para crear una línea curva en el mapa.
+    Calcula la ruta curva (ortodrómica) y corrige el cruce del Pacífico.
     """
-    # Convertir grados a radianes
+    # 1. Convertir a radianes
     lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
 
-    # Calcular el ángulo central entre los puntos
+    # 2. Calcular la distancia angular (fórmula Haversine simplificada para dirección)
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
     c = 2 * np.arcsin(np.sqrt(a))
     
-    # Si los puntos son el mismo, devolvemos una línea recta simple
-    if c == 0:
-        return [[np.degrees(lat1), np.degrees(lon1)], [np.degrees(lat2), np.degrees(lon2)]]
+    if c == 0: return [[np.degrees(lat1), np.degrees(lon1)], [np.degrees(lat2), np.degrees(lon2)]]
 
-    # Generar puntos intermedios
+    # 3. Generar puntos intermedios
     f = np.linspace(0, 1, n_points)
     A = np.sin((1 - f) * c) / np.sin(c)
     B = np.sin(f * c) / np.sin(c)
@@ -114,9 +111,12 @@ def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
     lat_i = np.arctan2(z, np.sqrt(x**2 + y**2))
     lon_i = np.arctan2(y, x)
 
-    # Convertir de nuevo a grados y devolver la lista de coordenadas
-    return np.stack([np.degrees(lat_i), np.degrees(lon_i)], axis=1).tolist()
+    # 4. EL TRUCO MÁGICO: Unwrap corrige el salto de 180 a -180
+    # Esto hace que la longitud sea continua (ej: 179, 180, 181...) en vez de saltar a -179
+    lon_i = np.unwrap(lon_i)
 
+    # 5. Convertir a grados y retornar lista de pares [lat, lon]
+    return np.stack([np.degrees(lat_i), np.degrees(lon_i)], axis=1).tolist()
 # Configuración de conexión
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
@@ -371,75 +371,54 @@ def main_app():
                 for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
         if st.button("Reset"): st.rerun()
 
-    # 3. MAPA
-    # 3. MAPA (CON RUTAS CURVAS GEODÉSICAS)
+   # 3. MAPA (VERSIÓN DEFINITIVA: CURVAS + PACÍFICO)
     elif menu == "🗺️ Mapa":
         st.header("🗺️ Historial de Rutas")
         df = leer_vuelos()
         
         if not df.empty:
-            # Centrar el mapa para ver el mundo
-            m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
+            # Centrar en el Pacífico para ver mejor las rutas largas
+            m = folium.Map(location=[0, -160], zoom_start=2, tiles="CartoDB dark_matter")
             
             rutas_dibujadas = 0
             aeropuertos_faltantes = set()
 
             for i, r in df.iterrows():
-                # 1. Obtener códigos ICAO
-                origen_icao = str(r['Origen']).strip().upper()
-                destino_icao = str(r['Destino']).strip().upper()
+                origen = str(r['Origen']).strip().upper()
+                destino = str(r['Destino']).strip().upper()
                 
-                # 2. Buscar coordenadas
-                c1 = obtener_coords(origen_icao)
-                c2 = obtener_coords(destino_icao)
+                c1 = obtener_coords(origen)
+                c2 = obtener_coords(destino)
                 
                 if c1 and c2:
-                    lat1, lon1 = c1
-                    lat2, lon2 = c2
-                    
-                    # --- ARREGLO PARA CRUCE DEL PACÍFICO ---
-                    # Si la distancia es muy grande, ajustamos para que cruce el antimeridiano
-                    # en lugar de dar la vuelta al mundo por el lado largo.
-                    if abs(lon2 - lon1) > 180:
-                        if lon2 > lon1:
-                            lon2 -= 360
-                        else:
-                            lon2 += 360
-                    
-                    # --- CALCULAR RUTA CURVA ---
-                    # Obtenemos los puntos para dibujar la curva geodésica
-                    ruta_curva = get_geodesic_path(lat1, lon1, lat2, lon2)
+                    # Generar la curva geodésica con corrección de Pacífico
+                    ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
                     
                     # Dibujar la línea curva
                     folium.PolyLine(
                         ruta_curva, 
-                        color="#39ff14", weight=2.5, opacity=0.8, 
-                        tooltip=f"Vuelo {i+1}: {origen_icao} -> {destino_icao}"
+                        color="#39ff14", # Verde neón
+                        weight=2.5, 
+                        opacity=0.8,
+                        tooltip=f"{origen} ✈ {destino}"
                     ).add_to(m)
                     
-                    # Dibujar los puntos de origen y destino (usamos las coordenadas originales)
-                    folium.CircleMarker(c1, radius=3, color="white", fill=True, fill_opacity=1, popup=origen_icao).add_to(m)
-                    folium.CircleMarker(c2, radius=3, color="#ff3914", fill=True, fill_opacity=1, popup=destino_icao).add_to(m)
+                    # Marcadores (Origen y Destino)
+                    folium.CircleMarker(c1, radius=4, color="white", fill=True, popup=origen).add_to(m)
+                    folium.CircleMarker(c2, radius=4, color="#ff3914", fill=True, popup=destino).add_to(m)
                     
                     rutas_dibujadas += 1
                 else:
-                    # Registrar aeropuertos no encontrados
-                    if not c1: aeropuertos_faltantes.add(origen_icao)
-                    if not c2: aeropuertos_faltantes.add(destino_icao)
+                    if not c1: aeropuertos_faltantes.add(origen)
+                    if not c2: aeropuertos_faltantes.add(destino)
             
-            # Mostrar el mapa
-            st_folium(m, width=1000, height=500)
-            
-            # Mensajes de estado
-            if rutas_dibujadas > 0:
-                st.caption(f"✅ Se han dibujado {rutas_dibujadas} rutas.")
+            st_folium(m, width=1100, height=600)
             
             if aeropuertos_faltantes:
-                st.warning(f"⚠️ No se encontraron coordenadas para los siguientes aeropuertos: {', '.join(aeropuertos_faltantes)}.")
-                
+                st.warning(f"⚠️ Faltan coordenadas para: {', '.join(aeropuertos_faltantes)}")
         else: 
-            st.info("No hay vuelos registrados para mostrar en el mapa.")
-
+            st.info("No hay vuelos registrados.")
+            
     # 4. CLIMA
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico")
@@ -596,6 +575,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
