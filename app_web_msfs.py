@@ -1,3 +1,4 @@
+import airportsdata
 import streamlit as st
 # import csv  <-- YA NO NECESITAMOS CSV
 import requests
@@ -9,6 +10,9 @@ import gspread # LIBRERIA NUEVA
 from oauth2client.service_account import ServiceAccountCredentials # LIBRERIA NUEVA
 from streamlit_folium import st_folium
 from datetime import datetime
+
+# Cargar base de datos mundial de aeropuertos (Usando códigos ICAO de 4 letras)
+AIRPORTS_DB = airportsdata.load('ICAO')
 
 # --- 1. CONFIGURACIÓN Y DATOS ---
 
@@ -187,10 +191,24 @@ def obtener_aerolineas_inteligente():
     return sorted(list(lista))
 
 def obtener_coords(icao):
-    # Asegura que el ICAO esté limpio y en mayúsculas
-    if isinstance(icao, str):
-        return AIRPORT_COORDS.get(icao.strip().upper(), None)
-    return None
+    """
+    Busca las coordenadas en la base de datos mundial airportsdata.
+    """
+    if not isinstance(icao, str):
+        return None
+    
+    codigo = icao.strip().upper()
+    
+    # 1. Buscar en la base de datos mundial
+    aeropuerto = AIRPORTS_DB.get(codigo)
+    
+    if aeropuerto:
+        # La librería devuelve lat/lon, lo convertimos a lista [lat, lon]
+        return [aeropuerto['lat'], aeropuerto['lon']]
+    
+    # 2. (Opcional) Si no está en la base mundial, busca en tu diccionario manual
+    # Esto sirve por si vas a una pista de tierra que no sale en los mapas oficiales
+    return AIRPORT_COORDS.get(codigo, None)
 
 def obtener_clima(icao_code):
     if not icao_code or len(icao_code) != 4:
@@ -504,5 +522,6 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
