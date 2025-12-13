@@ -371,12 +371,17 @@ def main_app():
                 for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
         if st.button("Reset"): st.rerun()
 
-  # 3. MAPA (PERSONALIZADO: ICONOS DE AVIÓN Y BANDERA)
+  # 3. MAPA (CON INTERRUPTOR ON/OFF PARA ICONOS)
     elif menu == "🗺️ Mapa":
         st.header("🗺️ Historial de Rutas")
         df = leer_vuelos()
         
         if not df.empty:
+            # --- INTERRUPTOR DE ICONOS ---
+            col_map1, col_map2 = st.columns([1, 4])
+            with col_map1:
+                mostrar_iconos = st.toggle("Mostrar Iconos 📍", value=True)
+            
             # Centrar el mapa
             m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
             
@@ -391,31 +396,33 @@ def main_app():
                 c2 = obtener_coords(destino)
                 
                 if c1 and c2:
-                    # 1. Dibujar la línea curva
+                    # 1. SIEMPRE DIBUJAR LA LÍNEA (Ruta)
                     ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
                     folium.PolyLine(
                         ruta_curva, 
-                        color="#39ff14", # Puedes cambiar este color hexadecimal por otro que te guste (ej: "#00BFFF" para azul)
+                        color="#39ff14", 
                         weight=3, 
                         opacity=0.7,
                         tooltip=f"✈️ Vuelo: {origen} -> {destino}"
                     ).add_to(m)
                     
-                    # 2. Marcador de ORIGEN (Avión Verde)
-                    folium.Marker(
-                        location=c1,
-                        popup=folium.Popup(f"🛫 Origen: <b>{origen}</b>", max_width=200),
-                        icon=folium.Icon(color="green", icon="plane", prefix="fa"),
-                        tooltip="Click para ver origen"
-                    ).add_to(m)
-                    
-                    # 3. Marcador de DESTINO (Bandera Roja)
-                    folium.Marker(
-                        location=c2,
-                        popup=folium.Popup(f"🛬 Destino: <b>{destino}</b>", max_width=200),
-                        icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa"),
-                        tooltip="Click para ver destino"
-                    ).add_to(m)
+                    # 2. DIBUJAR MARCADORES SOLO SI EL INTERRUPTOR ESTÁ ENCENDIDO
+                    if mostrar_iconos:
+                        # Marcador de ORIGEN (Avión Verde)
+                        folium.Marker(
+                            location=c1,
+                            popup=folium.Popup(f"🛫 Origen: <b>{origen}</b>", max_width=200),
+                            icon=folium.Icon(color="green", icon="plane", prefix="fa"),
+                            tooltip=origen
+                        ).add_to(m)
+                        
+                        # Marcador de DESTINO (Bandera Roja)
+                        folium.Marker(
+                            location=c2,
+                            popup=folium.Popup(f"🛬 Destino: <b>{destino}</b>", max_width=200),
+                            icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa"),
+                            tooltip=destino
+                        ).add_to(m)
                     
                     rutas_dibujadas += 1
                 else:
@@ -588,6 +595,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
