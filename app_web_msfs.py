@@ -371,14 +371,14 @@ def main_app():
                 for i in v: st.checkbox(i, key=f"{avion}{k}{i}")
         if st.button("Reset"): st.rerun()
 
-   # 3. MAPA (VERSIÓN DEFINITIVA: CURVAS + PACÍFICO)
+  # 3. MAPA (PERSONALIZADO: ICONOS DE AVIÓN Y BANDERA)
     elif menu == "🗺️ Mapa":
         st.header("🗺️ Historial de Rutas")
         df = leer_vuelos()
         
         if not df.empty:
-            # Centrar en el Pacífico para ver mejor las rutas largas
-            m = folium.Map(location=[0, -160], zoom_start=2, tiles="CartoDB dark_matter")
+            # Centrar el mapa
+            m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
             
             rutas_dibujadas = 0
             aeropuertos_faltantes = set()
@@ -391,21 +391,31 @@ def main_app():
                 c2 = obtener_coords(destino)
                 
                 if c1 and c2:
-                    # Generar la curva geodésica con corrección de Pacífico
+                    # 1. Dibujar la línea curva
                     ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
-                    
-                    # Dibujar la línea curva
                     folium.PolyLine(
                         ruta_curva, 
-                        color="#39ff14", # Verde neón
-                        weight=2.5, 
-                        opacity=0.8,
-                        tooltip=f"{origen} ✈ {destino}"
+                        color="#39ff14", # Puedes cambiar este color hexadecimal por otro que te guste (ej: "#00BFFF" para azul)
+                        weight=3, 
+                        opacity=0.7,
+                        tooltip=f"✈️ Vuelo: {origen} -> {destino}"
                     ).add_to(m)
                     
-                    # Marcadores (Origen y Destino)
-                    folium.CircleMarker(c1, radius=4, color="white", fill=True, popup=origen).add_to(m)
-                    folium.CircleMarker(c2, radius=4, color="#ff3914", fill=True, popup=destino).add_to(m)
+                    # 2. Marcador de ORIGEN (Avión Verde)
+                    folium.Marker(
+                        location=c1,
+                        popup=folium.Popup(f"🛫 Origen: <b>{origen}</b>", max_width=200),
+                        icon=folium.Icon(color="green", icon="plane", prefix="fa"),
+                        tooltip="Click para ver origen"
+                    ).add_to(m)
+                    
+                    # 3. Marcador de DESTINO (Bandera Roja)
+                    folium.Marker(
+                        location=c2,
+                        popup=folium.Popup(f"🛬 Destino: <b>{destino}</b>", max_width=200),
+                        icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa"),
+                        tooltip="Click para ver destino"
+                    ).add_to(m)
                     
                     rutas_dibujadas += 1
                 else:
@@ -416,6 +426,9 @@ def main_app():
             
             if aeropuertos_faltantes:
                 st.warning(f"⚠️ Faltan coordenadas para: {', '.join(aeropuertos_faltantes)}")
+            if rutas_dibujadas > 0:
+                st.caption(f"✅ Se muestran {rutas_dibujadas} rutas voladas.")
+                
         else: 
             st.info("No hay vuelos registrados.")
             
@@ -575,6 +588,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
