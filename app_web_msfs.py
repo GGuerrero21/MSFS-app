@@ -84,6 +84,49 @@ CHECKLISTS_DB = {
 
 # --- 2. FUNCIONES LÓGICAS (MODIFICADO PARA GOOGLE SHEETS) ---
 
+def mostrar_reloj_utc():
+    """
+    Inyecta un reloj UTC digital que se actualiza cada segundo usando JavaScript.
+    Se mantiene fijo en la esquina superior derecha.
+    """
+    st.markdown("""
+        <div style="
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #39ff14; /* Verde Neón tipo radar */
+            padding: 5px 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 9999;
+            border: 1px solid #39ff14;
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+        ">
+            <span id="utc_clock">Cargando...</span> UTC
+        </div>
+
+        <script>
+        function updateClock() {
+            var now = new Date();
+            // Convertir a UTC string
+            var timeString = now.toLocaleTimeString('en-US', {
+                timeZone: 'UTC', 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit'
+            });
+            document.getElementById('utc_clock').innerHTML = timeString;
+        }
+        // Actualizar cada 1000ms (1 segundo)
+        setInterval(updateClock, 1000);
+        updateClock(); // Ejecutar inmediatamente
+        </script>
+        """, unsafe_allow_html=True)
+
 def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
     """
     Calcula la ruta curva (ortodrómica) y corrige el cruce del Pacífico.
@@ -282,6 +325,7 @@ def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
 
     # --- INICIO DEL BLOQUE DE ESTILO ---
+    mostrar_reloj_utc()
     # Interruptor en la barra lateral para activar el modo grande
     modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
 
@@ -641,6 +685,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
