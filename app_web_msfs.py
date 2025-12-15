@@ -280,7 +280,53 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
 
 def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
-    # crear_archivo_csv() <-- YA NO ES NECESARIO
+
+    # --- INICIO DEL BLOQUE DE ESTILO ---
+    # Interruptor en la barra lateral para activar el modo grande
+    modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
+
+    if modo_grande:
+        st.markdown("""
+            <style>
+            /* 1. Aumentar tamaño base de todo el texto */
+            html, body, [class*="css"]  {
+                font-size: 20px !important;
+            }
+            
+            /* 2. Títulos más grandes */
+            h1 { font-size: 3rem !important; }
+            h2 { font-size: 2.5rem !important; }
+            h3 { font-size: 2rem !important; }
+            
+            /* 3. Inputs, Cajas de texto y Selectores */
+            .stTextInput > div > div > input { font-size: 18px !important; }
+            .stSelectbox > div > div > div { font-size: 18px !important; }
+            .stNumberInput > div > div > input { font-size: 18px !important; }
+            textarea { font-size: 18px !important; }
+            
+            /* 4. Botones más grandes y fáciles de clicar */
+            .stButton > button {
+                font-size: 20px !important;
+                padding: 10px 24px !important;
+                font-weight: bold !important;
+            }
+            
+            /* 5. Aumentar la fuente de las pestañas (Tabs) */
+            button[data-baseweb="tab"] {
+                font-size: 18px !important;
+            }
+            
+            /* 6. Aumentar la letra de la Sidebar */
+            [data-testid="stSidebar"] {
+                font-size: 18px !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+    # --- FIN DEL BLOQUE DE ESTILO ---
+
+    # ... AQUÍ SIGUE EL RESTO DE TU CÓDIGO (SIDEBAR, MENU, ETC) ...
+    # st.sidebar.title("👨‍✈️ Perfil")
+    # ...
 
     # SIDEBAR
     st.sidebar.title("👨‍✈️ Perfil")
@@ -595,6 +641,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
