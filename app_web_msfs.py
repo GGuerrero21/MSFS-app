@@ -86,47 +86,48 @@ CHECKLISTS_DB = {
 
 def mostrar_reloj_utc():
     """
-    Inyecta un reloj UTC digital que se actualiza cada segundo usando JavaScript.
-    Se mantiene fijo en la esquina superior derecha, DEBAJO del menú de Streamlit.
+    Reloj UTC robusto. Usa JavaScript con reintento para asegurar que
+    encuentra el elemento HTML incluso si la conexión es lenta.
     """
     st.markdown("""
-        <div style="
+        <div id="reloj_flotante_container" style="
             position: fixed;
-            top: 95px; /* <--- CAMBIO: Lo bajamos más para que no choque con el menú */
+            top: 90px; /* Ajustado para que no lo tape el menú Share */
             right: 20px;
-            background-color: rgba(0, 0, 0, 0.8);
+            background-color: #000000;
+            border: 2px solid #39ff14; /* Borde Verde Neón */
             color: #39ff14;
-            padding: 8px 15px;
+            padding: 10px;
             border-radius: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 22px; /* Un poco más grande para el modo tablet */
-            font-weight: bold;
-            z-index: 9999;
-            border: 2px solid #39ff14;
-            box-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
             text-align: center;
+            z-index: 100000; /* Z-index muy alto para estar siempre encima */
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
         ">
-            <div id="utc_clock">--:--:--</div>
-            <div style="font-size: 12px; color: white;">UTC ZULU</div>
+            <div id="utc_time_display" style="font-size: 24px; font-weight: bold;">--:--:--</div>
+            <div style="font-size: 12px; color: white; margin-top: -5px;">UTC ZULU</div>
         </div>
 
         <script>
-        function updateClock() {
-            var now = new Date();
-            var timeString = now.toLocaleTimeString('en-US', {
-                timeZone: 'UTC', 
-                hour12: false, 
-                hour: '2-digit', 
-                minute: '2-digit', 
-                second: '2-digit'
-            });
-            var clockElement = document.getElementById('utc_clock');
-            if (clockElement) {
-                clockElement.innerHTML = timeString;
+        (function() {
+            function updateClock() {
+                var display = document.getElementById('utc_time_display');
+                if (display) {
+                    // Obtener hora actual
+                    var now = new Date();
+                    // toISOString() siempre devuelve UTC (ej: 2023-10-05T14:30:00.000Z)
+                    // Cortamos el string para sacar solo la hora HH:MM:SS
+                    var timeString = now.toISOString().split('T')[1].split('.')[0];
+                    display.innerText = timeString;
+                }
             }
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
+
+            // Iniciar el intervalo inmediatamente
+            setInterval(updateClock, 1000);
+            
+            // Ejecutar una vez al inicio para quitar los guiones
+            setTimeout(updateClock, 100);
+        })();
         </script>
         """, unsafe_allow_html=True)
 
@@ -688,6 +689,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
