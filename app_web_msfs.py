@@ -86,49 +86,41 @@ CHECKLISTS_DB = {
 
 def mostrar_reloj_utc():
     """
-    Reloj UTC robusto. Usa JavaScript con reintento para asegurar que
-    encuentra el elemento HTML incluso si la conexión es lenta.
+    Reloj UTC 'Nuclear'. Usa un truco de imagen invisible para forzar
+    al navegador a ejecutar el reloj, saltándose las restricciones de Streamlit.
     """
     st.markdown("""
-        <div id="reloj_flotante_container" style="
+        <div style="
             position: fixed;
-            top: 90px; /* Ajustado para que no lo tape el menú Share */
+            top: 90px;
             right: 20px;
-            background-color: #000000;
-            border: 2px solid #39ff14; /* Borde Verde Neón */
+            background-color: #000;
+            border: 2px solid #39ff14;
             color: #39ff14;
             padding: 10px;
-            border-radius: 8px;
+            border-radius: 5px;
             font-family: 'Courier New', monospace;
             text-align: center;
-            z-index: 100000; /* Z-index muy alto para estar siempre encima */
-            box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
+            z-index: 999999;
+            box-shadow: 0 0 10px #39ff14;
         ">
-            <div id="utc_time_display" style="font-size: 24px; font-weight: bold;">--:--:--</div>
-            <div style="font-size: 12px; color: white; margin-top: -5px;">UTC ZULU</div>
+            <div id="reloj_utc_final" style="font-size: 24px; font-weight: bold;">Cargando...</div>
+            <div style="font-size: 12px; color: white;">UTC ZULU</div>
         </div>
 
-        <script>
-        (function() {
-            function updateClock() {
-                var display = document.getElementById('utc_time_display');
-                if (display) {
-                    // Obtener hora actual
+        <img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png" style="display:none;" onload="
+            function actualizar() {
+                var el = document.getElementById('reloj_utc_final');
+                if (el) {
                     var now = new Date();
-                    // toISOString() siempre devuelve UTC (ej: 2023-10-05T14:30:00.000Z)
-                    // Cortamos el string para sacar solo la hora HH:MM:SS
-                    var timeString = now.toISOString().split('T')[1].split('.')[0];
-                    display.innerText = timeString;
+                    var time = now.toISOString().split('T')[1].split('.')[0];
+                    el.innerHTML = time;
                 }
             }
-
-            // Iniciar el intervalo inmediatamente
-            setInterval(updateClock, 1000);
-            
-            // Ejecutar una vez al inicio para quitar los guiones
-            setTimeout(updateClock, 100);
-        })();
-        </script>
+            // Actualizar inmediatamente y luego cada segundo
+            actualizar();
+            setInterval(actualizar, 1000);
+        ">
         """, unsafe_allow_html=True)
 
 def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
@@ -689,6 +681,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
