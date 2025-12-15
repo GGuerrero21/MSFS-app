@@ -284,7 +284,7 @@ def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
 
     # --- INICIO DEL BLOQUE DE ESTILO ---
-    mostrar_reloj_utc()
+
     # Interruptor en la barra lateral para activar el modo grande
     modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
 
@@ -644,6 +644,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
