@@ -611,39 +611,100 @@ def main_app():
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
 
     # 6. ESTADÍSTICAS
+# 6. ESTADÍSTICAS (VERSIÓN PRO)
     elif menu == "📊 Estadísticas":
-        st.header("📊 Estadísticas de Piloto")
+        st.header("📊 Dashboard de Rendimiento")
         df = leer_vuelos()
+        
         if not df.empty:
-            # Landing rate seguro
+            # --- PREPARACIÓN DE DATOS ---
+            # Asegurar tipos de datos correctos
             if 'Landing_Rate_FPM' in df.columns:
                 df['Landing_Rate_FPM'] = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce')
-                avg_l = df['Landing_Rate_FPM'].mean()
-                st.metric("Promedio de Toque (Landing Rate)", f"{avg_l:.0f} fpm" if not pd.isna(avg_l) else "N/A")
+            if 'Tiempo_Vuelo_Horas' in df.columns:
+                df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce')
+            if 'Fecha' in df.columns:
+                df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+
+            # --- FILA 1: KPIs (INDICADORES CLAVE) ---
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             
+            total_vuelos = len(df)
+            total_horas = df['Tiempo_Vuelo_Horas'].sum()
+            promedio_landing = df['Landing_Rate_FPM'].mean()
+            avion_fav = df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns and not df['Modelo_Avion'].mode().empty else "N/A"
+
+            kpi1.metric("Vuelos Totales", f"{total_vuelos}", delta="Registrados")
+            kpi2.metric("Horas de Vuelo", f"{total_horas:.1f} h", delta="Acumuladas")
+            
+            # Colorear el landing rate según calidad
+            delta_color = "normal"
+            if promedio_landing < 200: delta_color = "inverse" # Verde (bueno)
+            elif promedio_landing > 400: delta_color = "off" # Gris/Rojo (malo)
+            
+            kpi3.metric("Toque Promedio", f"{promedio_landing:.0f} fpm", delta="-fpm es mejor", delta_color=delta_color)
+            kpi4.metric("Avión Favorito", avion_fav)
+
             st.markdown("---")
+
+            # --- FILA 2: ANÁLISIS DE ATERRIZAJES (NUEVO) ---
+            st.subheader("🛬 Calidad de Aterrizajes")
             
+            # Crear categorías de aterrizaje
+            def calificar_landing(fpm):
+                if pd.isna(fpm): return "Sin Datos"
+                if fpm < 0: return "Error"
+                if fpm <= 150: return "🧈 Butter (<150)"
+                elif fpm <= 300: return "✅ Bueno (150-300)"
+                elif fpm <= 600: return "⚠️ Duro (300-600)"
+                else: return "💥 Tren Roto (>600)"
+
+            df['Calidad_Landing'] = df['Landing_Rate_FPM'].apply(calificar_landing)
+            
+            col_land1, col_land2 = st.columns([2, 1])
+            
+            with col_land1:
+                # Histograma de FPM
+                fig_hist = px.histogram(df, x="Landing_Rate_FPM", nbins=20, title="Distribución de FPM", 
+                                      color_discrete_sequence=['#39ff14'])
+                fig_hist.add_vline(x=promedio_landing, line_dash="dash", line_color="white", annotation_text="Promedio")
+                st.plotly_chart(fig_hist, use_container_width=True)
+            
+            with col_land2:
+                # Pastel de Calidad
+                conteo_calidad = df['Calidad_Landing'].value_counts().reset_index()
+                conteo_calidad.columns = ['Calidad', 'Cantidad']
+                fig_qual = px.pie(conteo_calidad, values='Cantidad', names='Calidad', title="Resumen de Calidad", hole=0.4,
+                                color_discrete_sequence=px.colors.sequential.RdBu_r)
+                st.plotly_chart(fig_qual, use_container_width=True)
+
+            # --- FILA 3: EVOLUCIÓN Y FAVORITOS ---
             c1, c2 = st.columns(2)
             
-            # Gráfico Barras Corregido
-            if 'Modelo_Avion' in df.columns:
-                data_aviones = df['Modelo_Avion'].value_counts().reset_index()
-                data_aviones.columns = ['Modelo', 'Cantidad']
-                fig_bar = px.bar(data_aviones, x='Cantidad', y='Modelo', orientation='h', title="Vuelos por Avión", text='Cantidad')
-                c1.plotly_chart(fig_bar, use_container_width=True)
+            with c1:
+                st.subheader("✈️ Aviones más usados")
+                data_aviones = df['Modelo_Avion'].value_counts().reset_index().head(10)
+                data_aviones.columns = ['Modelo', 'Vuelos']
+                fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h', text='Vuelos', color='Vuelos')
+                st.plotly_chart(fig_bar, use_container_width=True)
             
-            # Gráfico Pastel Corregido
-            if 'Aerolinea' in df.columns:
-                data_aero = df['Aerolinea'].value_counts().reset_index()
-                data_aero.columns = ['Aerolinea', 'Vuelos']
-                fig_pie = px.pie(data_aero, values='Vuelos', names='Aerolinea', title="Aerolíneas Preferidas", hole=0.3)
-                c2.plotly_chart(fig_pie, use_container_width=True)
-            
-            st.dataframe(df)
-        else: st.info("Registra vuelos para ver datos.")
+            with c2:
+                st.subheader("🌍 Aeropuertos Top (Origen)")
+                data_aero = df['Origen'].value_counts().reset_index().head(10)
+                data_aero.columns = ['Aeropuerto', 'Salidas']
+                fig_treemap = px.treemap(data_aero, path=['Aeropuerto'], values='Salidas', color='Salidas')
+                st.plotly_chart(fig_treemap, use_container_width=True)
+
+            # --- FILA 4: DATA RAW ---
+            with st.expander("Ver base de datos completa"):
+                st.dataframe(df.style.highlight_max(axis=0, subset=['Landing_Rate_FPM'], color='#ff4b4b'), use_container_width=True)
+                
+        else:
+            st.info("Registra tu primer vuelo para desbloquear el Dashboard Pro.")
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
