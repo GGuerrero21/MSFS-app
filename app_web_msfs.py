@@ -610,23 +610,36 @@ def main_app():
             kg = st.number_input("Kg a Lbs", value=0)
             st.caption(f"{kg} kg = {kg*2.20462:.1f} lbs")
 
-    # 6. ESTADÍSTICAS
-# 6. ESTADÍSTICAS (VERSIÓN PRO)
+# 6. ESTADÍSTICAS (DISEÑO PRO 2.0)
     elif menu == "📊 Estadísticas":
         st.header("📊 Dashboard de Rendimiento")
         df = leer_vuelos()
         
         if not df.empty:
-            # --- PREPARACIÓN DE DATOS ---
-            # Asegurar tipos de datos correctos
+            # --- PROCESAMIENTO DE DATOS ---
             if 'Landing_Rate_FPM' in df.columns:
                 df['Landing_Rate_FPM'] = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce')
             if 'Tiempo_Vuelo_Horas' in df.columns:
                 df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce')
             if 'Fecha' in df.columns:
                 df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+                df = df.sort_values('Fecha') # Ordenar por fecha para ver evolución
 
-            # --- FILA 1: KPIs (INDICADORES CLAVE) ---
+            # --- ESTILOS DE GRÁFICOS (FUNCIÓN HELPER) ---
+            def estilo_chart(fig):
+                """Aplica estilo oscuro y minimalista a los gráficos"""
+                fig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", # Fondo transparente
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font_color="white",
+                    title_font_size=18,
+                    xaxis=dict(showgrid=False, showline=True, linecolor="gray"),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.1)"), # Rejilla muy sutil
+                    margin=dict(l=20, r=20, t=40, b=20)
+                )
+                return fig
+
+            # --- FILA 1: KPIs ---
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             
             total_vuelos = len(df)
@@ -634,76 +647,110 @@ def main_app():
             promedio_landing = df['Landing_Rate_FPM'].mean()
             avion_fav = df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns and not df['Modelo_Avion'].mode().empty else "N/A"
 
-            kpi1.metric("Vuelos Totales", f"{total_vuelos}", delta="Registrados")
-            kpi2.metric("Horas de Vuelo", f"{total_horas:.1f} h", delta="Acumuladas")
+            kpi1.metric("📦 Vuelos", f"{total_vuelos}")
+            kpi2.metric("⏱️ Horas", f"{total_horas:.1f} h")
             
-            # Colorear el landing rate según calidad
-            delta_color = "normal"
-            if promedio_landing < 200: delta_color = "inverse" # Verde (bueno)
-            elif promedio_landing > 400: delta_color = "off" # Gris/Rojo (malo)
-            
-            kpi3.metric("Toque Promedio", f"{promedio_landing:.0f} fpm", delta="-fpm es mejor", delta_color=delta_color)
-            kpi4.metric("Avión Favorito", avion_fav)
+            # Color dinámico del KPI de Landing
+            l_color = "normal"
+            if promedio_landing < 180: l_color = "inverse" # Verde si es muy bueno
+            kpi3.metric("🛬 Toque Promedio", f"{promedio_landing:.0f} fpm", delta_color=l_color)
+            kpi4.metric("✈️ Favorito", avion_fav)
 
             st.markdown("---")
 
-            # --- FILA 2: ANÁLISIS DE ATERRIZAJES (NUEVO) ---
-            st.subheader("🛬 Calidad de Aterrizajes")
+            # --- FILA 2: EVOLUCIÓN DE ATERRIZAJES (AREA CHART) ---
+            st.subheader("📉 Historial de Aterrizajes (Tendencia)")
             
-            # Crear categorías de aterrizaje
-            def calificar_landing(fpm):
-                if pd.isna(fpm): return "Sin Datos"
-                if fpm < 0: return "Error"
-                if fpm <= 150: return "🧈 Butter (<150)"
-                elif fpm <= 300: return "✅ Bueno (150-300)"
-                elif fpm <= 600: return "⚠️ Duro (300-600)"
-                else: return "💥 Tren Roto (>600)"
+            # Usamos un gráfico de área para ver la evolución
+            fig_area = px.area(
+                df, 
+                x="Fecha", 
+                y="Landing_Rate_FPM", 
+                title="Suavidad de Aterrizaje por Vuelo",
+                markers=True,
+                color_discrete_sequence=["#00BFFF"] # Azul cielo eléctrico
+            )
+            # Agregamos una línea roja de referencia (Aterrizaje Duro > 300)
+            fig_area.add_hline(y=300, line_dash="dot", line_color="red", annotation_text="Límite Duro")
+            fig_area.update_traces(line=dict(width=3), marker=dict(size=8, color="white", line=dict(width=2, color="#00BFFF")))
+            fig_area = estilo_chart(fig_area)
+            st.plotly_chart(fig_area, use_container_width=True)
 
-            df['Calidad_Landing'] = df['Landing_Rate_FPM'].apply(calificar_landing)
-            
-            col_land1, col_land2 = st.columns([2, 1])
-            
-            with col_land1:
-                # Histograma de FPM
-                fig_hist = px.histogram(df, x="Landing_Rate_FPM", nbins=20, title="Distribución de FPM", 
-                                      color_discrete_sequence=['#39ff14'])
-                fig_hist.add_vline(x=promedio_landing, line_dash="dash", line_color="white", annotation_text="Promedio")
-                st.plotly_chart(fig_hist, use_container_width=True)
-            
-            with col_land2:
-                # Pastel de Calidad
-                conteo_calidad = df['Calidad_Landing'].value_counts().reset_index()
-                conteo_calidad.columns = ['Calidad', 'Cantidad']
-                fig_qual = px.pie(conteo_calidad, values='Cantidad', names='Calidad', title="Resumen de Calidad", hole=0.4,
-                                color_discrete_sequence=px.colors.sequential.RdBu_r)
-                st.plotly_chart(fig_qual, use_container_width=True)
+            # --- FILA 3: CALIDAD Y AVIONES ---
+            c_left, c_right = st.columns([1, 1])
 
-            # --- FILA 3: EVOLUCIÓN Y FAVORITOS ---
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.subheader("✈️ Aviones más usados")
-                data_aviones = df['Modelo_Avion'].value_counts().reset_index().head(10)
-                data_aviones.columns = ['Modelo', 'Vuelos']
-                fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h', text='Vuelos', color='Vuelos')
+            # 1. Pastel de Calidad (Donut Chart Mejorado)
+            with c_left:
+                # Definir categorías
+                def calificar(fpm):
+                    if pd.isna(fpm): return "N/A"
+                    if fpm <= 150: return "🧈 Butter"
+                    elif fpm <= 300: return "✅ Normal"
+                    elif fpm <= 600: return "⚠️ Duro"
+                    else: return "💥 Accidente"
+
+                df['Calidad'] = df['Landing_Rate_FPM'].apply(calificar)
+                conteo = df['Calidad'].value_counts().reset_index()
+                conteo.columns = ['Calidad', 'Cantidad']
+                
+                # Mapeo de colores específico
+                colores_calidad = {
+                    "🧈 Butter": "#FFD700",  # Dorado
+                    "✅ Normal": "#39ff14",  # Verde Neón
+                    "⚠️ Duro": "#FFA500",    # Naranja
+                    "💥 Accidente": "#FF0000", # Rojo
+                    "N/A": "Grey"
+                }
+
+                fig_donut = px.pie(
+                    conteo, 
+                    values='Cantidad', 
+                    names='Calidad', 
+                    title="Distribución de Calidad", 
+                    hole=0.6,
+                    color='Calidad',
+                    color_discrete_map=colores_calidad
+                )
+                fig_donut.update_traces(textinfo='percent+label', textfont_size=14)
+                fig_donut = estilo_chart(fig_donut)
+                st.plotly_chart(fig_donut, use_container_width=True)
+
+            # 2. Barras de Aviones (Horizontal y Elegante)
+            with c_right:
+                conteo_aviones = df['Modelo_Avion'].value_counts().reset_index().head(5)
+                conteo_aviones.columns = ['Modelo', 'Vuelos']
+                
+                fig_bar = px.bar(
+                    conteo_aviones, 
+                    x='Vuelos', 
+                    y='Modelo', 
+                    title="Top 5 Aeronaves",
+                    orientation='h',
+                    text='Vuelos',
+                    color='Vuelos',
+                    color_continuous_scale="Viridis" # Gradiente de color elegante
+                )
+                fig_bar.update_traces(texttemplate='%{text}', textposition='outside')
+                fig_bar = estilo_chart(fig_bar)
+                # Ocultar la barra de color lateral que sobra
+                fig_bar.update_layout(coloraxis_showscale=False) 
                 st.plotly_chart(fig_bar, use_container_width=True)
-            
-            with c2:
-                st.subheader("🌍 Aeropuertos Top (Origen)")
-                data_aero = df['Origen'].value_counts().reset_index().head(10)
-                data_aero.columns = ['Aeropuerto', 'Salidas']
-                fig_treemap = px.treemap(data_aero, path=['Aeropuerto'], values='Salidas', color='Salidas')
-                st.plotly_chart(fig_treemap, use_container_width=True)
 
-            # --- FILA 4: DATA RAW ---
-            with st.expander("Ver base de datos completa"):
-                st.dataframe(df.style.highlight_max(axis=0, subset=['Landing_Rate_FPM'], color='#ff4b4b'), use_container_width=True)
+            # --- FILA 4: TABLA DE DATOS ---
+            with st.expander("📋 Ver Registro Completo de Vuelos"):
+                # Estilizar la tabla para que se vea moderna
+                st.dataframe(
+                    df[['Fecha', 'Origen', 'Destino', 'Modelo_Avion', 'Tiempo_Vuelo_Horas', 'Landing_Rate_FPM', 'Calidad']],
+                    use_container_width=True,
+                    hide_index=True
+                )
                 
         else:
-            st.info("Registra tu primer vuelo para desbloquear el Dashboard Pro.")
+            st.info("Registra tu primer vuelo para ver el Dashboard.")
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
