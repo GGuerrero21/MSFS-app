@@ -84,44 +84,7 @@ CHECKLISTS_DB = {
 
 # --- 2. FUNCIONES LÓGICAS (MODIFICADO PARA GOOGLE SHEETS) ---
 
-def mostrar_reloj_utc():
-    """
-    Reloj UTC 'Nuclear'. Usa un truco de imagen invisible para forzar
-    al navegador a ejecutar el reloj, saltándose las restricciones de Streamlit.
-    """
-    st.markdown("""
-        <div style="
-            position: fixed;
-            top: 90px;
-            right: 20px;
-            background-color: #000;
-            border: 2px solid #39ff14;
-            color: #39ff14;
-            padding: 10px;
-            border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            text-align: center;
-            z-index: 999999;
-            box-shadow: 0 0 10px #39ff14;
-        ">
-            <div id="reloj_utc_final" style="font-size: 24px; font-weight: bold;">Cargando...</div>
-            <div style="font-size: 12px; color: white;">UTC ZULU</div>
-        </div>
 
-        <img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png" style="display:none;" onload="
-            function actualizar() {
-                var el = document.getElementById('reloj_utc_final');
-                if (el) {
-                    var now = new Date();
-                    var time = now.toISOString().split('T')[1].split('.')[0];
-                    el.innerHTML = time;
-                }
-            }
-            // Actualizar inmediatamente y luego cada segundo
-            actualizar();
-            setInterval(actualizar, 1000);
-        ">
-        """, unsafe_allow_html=True)
 
 def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
     """
@@ -681,6 +644,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
