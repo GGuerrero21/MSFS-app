@@ -87,31 +87,32 @@ CHECKLISTS_DB = {
 def mostrar_reloj_utc():
     """
     Inyecta un reloj UTC digital que se actualiza cada segundo usando JavaScript.
-    Se mantiene fijo en la esquina superior derecha.
+    Se mantiene fijo en la esquina superior derecha, DEBAJO del menú de Streamlit.
     """
     st.markdown("""
         <div style="
             position: fixed;
-            top: 60px;
+            top: 95px; /* <--- CAMBIO: Lo bajamos más para que no choque con el menú */
             right: 20px;
-            background-color: rgba(0, 0, 0, 0.7);
-            color: #39ff14; /* Verde Neón tipo radar */
-            padding: 5px 15px;
-            border-radius: 5px;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #39ff14;
+            padding: 8px 15px;
+            border-radius: 8px;
             font-family: 'Courier New', monospace;
-            font-size: 20px;
+            font-size: 22px; /* Un poco más grande para el modo tablet */
             font-weight: bold;
             z-index: 9999;
-            border: 1px solid #39ff14;
-            box-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+            border: 2px solid #39ff14;
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+            text-align: center;
         ">
-            <span id="utc_clock">Cargando...</span> UTC
+            <div id="utc_clock">--:--:--</div>
+            <div style="font-size: 12px; color: white;">UTC ZULU</div>
         </div>
 
         <script>
         function updateClock() {
             var now = new Date();
-            // Convertir a UTC string
             var timeString = now.toLocaleTimeString('en-US', {
                 timeZone: 'UTC', 
                 hour12: false, 
@@ -119,11 +120,13 @@ def mostrar_reloj_utc():
                 minute: '2-digit', 
                 second: '2-digit'
             });
-            document.getElementById('utc_clock').innerHTML = timeString;
+            var clockElement = document.getElementById('utc_clock');
+            if (clockElement) {
+                clockElement.innerHTML = timeString;
+            }
         }
-        // Actualizar cada 1000ms (1 segundo)
         setInterval(updateClock, 1000);
-        updateClock(); // Ejecutar inmediatamente
+        updateClock();
         </script>
         """, unsafe_allow_html=True)
 
@@ -685,6 +688,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
