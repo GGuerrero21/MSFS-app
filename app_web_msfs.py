@@ -33,7 +33,7 @@ AIRPORT_COORDS = {
 
 AEROLINEAS_BASE = [
     "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
-    "Air Europa", "Air France", "Air India", "Air New Zealand", "Air Transat", "Alaska Airlines", 
+    "Air Europa", "Air France", "Air India", "Air Mauritius", "Air New Zealand", "Air Transat", "Alaska Airlines", 
     "Alitalia (ITA Airways)", "All Nippon Airways (ANA)", "American Airlines", "Asiana Airlines", 
     "Atlas Air (Cargo)", "Austrian Airlines", "Avianca", "Azul Brazilian Airlines", "British Airways", 
     "Brussels Airlines", "Cathay Pacific", "Cebu Pacific", "China Airlines", "China Eastern Airlines", 
@@ -690,6 +690,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
