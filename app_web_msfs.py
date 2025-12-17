@@ -46,7 +46,7 @@ AEROLINEAS_BASE = [
     "Norwegian Air Shuttle", "Oman Air", "Philippine Airlines", "Qantas", "Qatar Airways", 
     "Royal Air Maroc", "Royal Jordanian", "Ryanair", "SAS (Scandinavian Airlines)", "Saudia", 
     "Scoot", "Singapore Airlines", "Sky Airline", "South African Airways", "Southwest Airlines", 
-    "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Swiss International Air Lines", 
+    "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Starlux Ailines", "Swiss International Air Lines", 
     "TAP Air Portugal", "Thai Airways", "Turkish Airlines","Uganda Airlines", "United Airlines", "UPS Airlines", 
     "VietJet Air", "Vietnam Airlines", "Virgin Atlantic", "Virgin Australia", "Volaris", 
     "Vueling", "WestJet", "Wizz Air", "XiamenAir"
@@ -690,6 +690,7 @@ def main_app():
 
 if __name__ == "__main__":
     main_app()
+
 
 
 
