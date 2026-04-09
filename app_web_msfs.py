@@ -49,7 +49,7 @@ AEROLINEAS_BASE = [
     "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Starlux Ailines", "Swiss International Air Lines", 
     "TAP Air Portugal", "Thai Airways", "Turkish Airlines","Uganda Airlines", "United Airlines", "UPS Airlines", 
     "VietJet Air", "Vietnam Airlines", "Virgin Atlantic", "Virgin Australia", "Volaris", 
-    "Vueling", "WestJet", "Wizz Air", "XiamenAir"
+    "Vueling", "WestJet", "Wizz Air", "XiamenAir", "Peach Aviation"
 ]
 
 MODELOS_AVION = [
