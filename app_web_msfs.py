@@ -43,7 +43,7 @@ AEROLINEAS_BASE = [
     "GOL Linhas Aéreas", "Gulf Air", "Hainan Airlines", "Hawaiian Airlines", "Iberia", "Icelandair", 
     "IndiGo", "Japan Airlines (JAL)", "JetBlue", "Jetstar", "JetSmart", "Juneyao Air", "Kenya Airways", "KLM", 
     "Korean Air", "LATAM Airlines", "LATAM Airlines Brasil", "Lion Air", "LOT Polish Airlines", "Lufthansa", "Malaysia Airlines", 
-    "Norwegian Air Shuttle", "Oman Air", "Philippine Airlines", "Qantas", "Qatar Airways", 
+    "Norwegian Air Shuttle", "Oman Air", "Philippine Airlines", "Qantas", "Qatar Airways", "Rossiya Airlines", 
     "Royal Air Maroc", "Royal Jordanian", "Ryanair", "SAS (Scandinavian Airlines)", "Saudia", 
     "Scoot", "Singapore Airlines", "Sky Airline", "South African Airways", "Southwest Airlines", 
     "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Starlux Ailines", "Swiss International Air Lines", 
