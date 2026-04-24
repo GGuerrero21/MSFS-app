@@ -32,7 +32,7 @@ AIRPORT_COORDS = {
 }
 
 AEROLINEAS_BASE = [
-    "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", 
+    "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China", "Air Corsica", 
     "Air Europa", "Air France", "Air India", "Air Mauritius", "Air New Zealand", "Air Transat", "Alaska Airlines", "Air Cairo", 
     "Alitalia (ITA Airways)", "All Nippon Airways (ANA)", "American Airlines", "Asiana Airlines", 
     "Atlas Air (Cargo)", "Austrian Airlines", "Avianca", "Azul Brazilian Airlines", "British Airways", 
