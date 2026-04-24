@@ -15,7 +15,7 @@ import gspread # LIBRERIA NUEVA
 from oauth2client.service_account import ServiceAccountCredentials # LIBRERIA NUEVA
 from streamlit_folium import st_folium
 from datetime import datetime
-
+from datetime import time
 # Cargar base de datos mundial de aeropuertos (Usando códigos ICAO de 4 letras)
 AIRPORTS_DB = airportsdata.load('ICAO')
 
@@ -369,8 +369,8 @@ def main_app():
                 destino = st.text_input("Destino", value=st.session_state.form_data["destino"]).upper()
                 modelo = st.selectbox("Avión", MODELOS_AVION)
             with c2:
-                h_out = st.text_input("Hora OUT (UTC)", max_chars=4)
-                h_in = st.text_input("Hora IN (UTC)", max_chars=4)
+                h_out = st.time_input("Hora OUT (UTC)", value=time(12, 0))
+                h_in = st.time_input("Hora IN (UTC)", value=time(14, 0))
                 tiempo = st.number_input("Horas", step=0.1, value=st.session_state.form_data["tiempo"])
             with c3:
                 lista_aero = obtener_aerolineas_inteligente()
@@ -390,7 +390,15 @@ def main_app():
             if st.form_submit_button("Guardar Vuelo 💾"):
                 if tiempo > 0 and origen and destino:
                     # Datos a guardar
-                    row = [fecha, origen, destino, ruta, aero, num, modelo, h_out, h_in, f"{tiempo:.2f}", 0, p_out, p_in, l_rate, notas]
+                    # Convertir a formato HH:MM
+                    h_out_str = h_out.strftime("%H:%M")
+                    h_in_str = h_in.strftime("%H:%M")
+                    
+                    row = [
+                        fecha, origen, destino, ruta, aero, num, modelo,
+                        h_out_str, h_in_str,
+                        f"{tiempo:.2f}", 0, p_out, p_in, l_rate, notas
+                    ]
                     
                     # --- GUARDADO EN GOOGLE SHEETS ---
                     with st.spinner("Guardando en la nube..."):
