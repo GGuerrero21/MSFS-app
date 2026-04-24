@@ -369,8 +369,8 @@ def main_app():
                 destino = st.text_input("Destino", value=st.session_state.form_data["destino"]).upper()
                 modelo = st.selectbox("Avión", MODELOS_AVION)
             with c2:
-                h_out = st.time_input("Hora OUT (UTC)", value=time(12, 0))
-                h_in = st.time_input("Hora IN (UTC)", value=time(14, 0))
+                h_out = st.time_input("Hora OUT (UTC)", value=time(12, 0), step=60)
+                h_in = st.time_input("Hora IN (UTC)", value=time(14, 0), step=60)
                 tiempo = st.number_input("Horas", step=0.1, value=st.session_state.form_data["tiempo"])
             with c3:
                 lista_aero = obtener_aerolineas_inteligente()
