@@ -15,14 +15,9 @@ AIRPORTS_DB = airportsdata.load('ICAO')
 
 # --- 1. DATOS ---
 
-AIRPORT_COORDS = {
-    "KJFK": [40.6413, -73.7781], "EGLL": [51.4700, -0.4543], "SCEL": [-33.3930, -70.7858],
-    "SAEZ": [-34.8222, -58.5358], "LEMD": [40.4722, -3.5609], "SKBO": [4.7016, -74.1469],
-    "MMMX": [19.4363, -99.0721], "KMIA": [25.7959, -80.2870], "KLAX": [33.9416, -118.4085],
-    "EHAM": [52.3105, 4.7683], "LFPG": [49.0097, 2.5479], "OMDB": [25.2532, 55.3657],
-    "RJAA": [35.7719, 140.3928], "YSSY": [-33.9399, 151.1753], "SBGR": [-23.4356, -46.4731],
-    "SPJC": [-12.0219, -77.1143], "MPTO": [9.0714, -79.3835], "FACT": [-33.9715, 18.6021],
-    "NZAA": [-37.0082, 174.7950], "NTAA": [-17.5536, -149.6070]
+# Fallback manual para aeropuertos no cubiertos por airportsdata (pistas de tierra, helipuertos, etc.)
+AIRPORT_COORDS_FALLBACK = {
+    "NTAA": [-17.5536, -149.6070]
 }
 
 AEROLINEAS_BASE = sorted([
@@ -158,20 +153,6 @@ def eliminar_vuelo_gs(row_index):
             return False
     return False
 
-def actualizar_vuelo_gs(row_index, row_data):
-    """Actualiza una fila completa por índice."""
-    sheet = conectar_google_sheets()
-    if sheet:
-        try:
-            row_str = [str(x) for x in row_data]
-            # Fila en el sheet = index + 2 (1 de header + 1 de base 1)
-            sheet.update(f"A{row_index + 2}", [row_str])
-            leer_vuelos.clear()
-            return True
-        except Exception as e:
-            st.error(f"Error actualizando: {e}")
-            return False
-    return False
 
 # --- 3. FUNCIONES LÓGICAS ---
 
@@ -264,7 +245,7 @@ def obtener_coords(icao):
     aeropuerto = AIRPORTS_DB.get(codigo)
     if aeropuerto:
         return [aeropuerto['lat'], aeropuerto['lon']]
-    return AIRPORT_COORDS.get(codigo, None)
+    return AIRPORT_COORDS_FALLBACK.get(codigo, None)
 
 def obtener_clima(icao_code):
     if not icao_code or len(icao_code) != 4:
@@ -286,10 +267,167 @@ def obtener_clima(icao_code):
         return None, "❌ No se encontraron datos."
     return (raw_metar, raw_taf), None
 
+def decodificar_metar(metar_raw):
+    """
+    Decodifica un string METAR y retorna un dict con campos legibles.
+    Cubre: estación, fecha/hora, viento, visibilidad, fenómenos, nubes, temp/dewpoint, QNH, CAVOK.
+    """
+    import re
+    resultado = {}
+    tokens = metar_raw.strip().split()
+    if not tokens:
+        return resultado
+
+    idx = 0
+
+    # Estación ICAO (4 letras)
+    if re.match(r'^[A-Z]{4}$', tokens[idx]):
+        resultado['estacion'] = tokens[idx]
+        idx += 1
+
+    # Fecha/Hora (DDHHMMz)
+    if idx < len(tokens) and re.match(r'^\d{6}Z$', tokens[idx]):
+        t = tokens[idx]
+        resultado['fecha_hora'] = f"Día {t[0:2]}, {t[2:4]}:{t[4:6]} UTC"
+        idx += 1
+
+    # AUTO / COR
+    if idx < len(tokens) and tokens[idx] in ('AUTO', 'COR'):
+        resultado['tipo'] = tokens[idx]
+        idx += 1
+
+    # Viento: dddffKT o dddffGggKT o VRBffKT
+    if idx < len(tokens):
+        m = re.match(r'^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?(KT|MPS|KMH)$', tokens[idx])
+        if m:
+            direccion = "Variable" if m.group(1) == 'VRB' else f"{m.group(1)}°"
+            velocidad = m.group(2)
+            unidad = m.group(5)
+            rafaga = f", ráfagas {m.group(4)} {unidad}" if m.group(4) else ""
+            resultado['viento'] = f"{direccion} a {velocidad} {unidad}{rafaga}"
+            idx += 1
+            # Variación de viento (ej: 280V350)
+            if idx < len(tokens) and re.match(r'^\d{3}V\d{3}$', tokens[idx]):
+                v = tokens[idx]
+                resultado['viento'] += f" (variable {v[:3]}°–{v[4:]}°)"
+                idx += 1
+
+    # CAVOK
+    if idx < len(tokens) and tokens[idx] == 'CAVOK':
+        resultado['visibilidad'] = "> 10 km"
+        resultado['nubes'] = "Sin nubes bajo 5000 ft, sin precipitación"
+        resultado['cavok'] = True
+        idx += 1
+    else:
+        # Visibilidad (metros o millas)
+        if idx < len(tokens):
+            m = re.match(r'^(\d{4})$', tokens[idx])
+            m_us = re.match(r'^(\d+(?:\s\d+/\d+)?SM)$', tokens[idx])
+            if m:
+                vis = int(m.group(1))
+                resultado['visibilidad'] = "> 10 km" if vis >= 9999 else f"{vis} m"
+                idx += 1
+            elif m_us:
+                resultado['visibilidad'] = tokens[idx]
+                idx += 1
+
+        # Fenómenos meteorológicos
+        wx_codes = {
+            'RA':'Lluvia', 'SN':'Nieve', 'GR':'Granizo', 'GS':'Granizo pequeño',
+            'DZ':'Llovizna', 'SG':'Granos de nieve', 'IC':'Cristales de hielo',
+            'FG':'Niebla', 'BR':'Neblina', 'HZ':'Bruma', 'FU':'Humo',
+            'SA':'Arena', 'DU':'Polvo', 'VA':'Ceniza volcánica',
+            'TS':'Tormenta', 'SQ':'Turbonada', 'FC':'Tromba',
+            'SS':'Tormenta de arena', 'DS':'Tormenta de polvo',
+            'PY':'Spray', 'RASN':'Lluvia y nieve mezcladas'
+        }
+        intensidad = {'-':'Ligero', '+':'Fuerte', 'VC':'En vecindad'}
+        fenomenos = []
+        while idx < len(tokens):
+            tok = tokens[idx]
+            desc = None
+            prefijo = ''
+            if tok[0] in ('-', '+'):
+                prefijo = intensidad.get(tok[0], '')
+                tok_body = tok[1:]
+            elif tok.startswith('VC'):
+                prefijo = 'En vecindad de'
+                tok_body = tok[2:]
+            else:
+                tok_body = tok
+            # Puede ser combinación: TSRA, +RASN, etc.
+            for code, name in wx_codes.items():
+                if tok_body == code or tok_body.startswith(code):
+                    desc = f"{prefijo} {name}".strip()
+                    break
+            if desc:
+                fenomenos.append(desc)
+                idx += 1
+            else:
+                break
+        if fenomenos:
+            resultado['fenomenos'] = ", ".join(fenomenos)
+
+        # Nubes
+        nubes = []
+        while idx < len(tokens):
+            m = re.match(r'^(FEW|SCT|BKN|OVC|NSC|SKC|NCD|VV)(\d{3})?(?:(CB|TCU))?$', tokens[idx])
+            if m:
+                cobertura_map = {
+                    'FEW':'Escasas (1-2/8)', 'SCT':'Dispersas (3-4/8)',
+                    'BKN':'Fragmentadas/Techo (5-7/8)', 'OVC':'Cubierto/Techo (8/8)',
+                    'NSC':'Sin nubes significativas', 'SKC':'Cielo despejado',
+                    'NCD':'Sin nubes detectadas', 'VV':'Visibilidad vertical'
+                }
+                cobertura = cobertura_map.get(m.group(1), m.group(1))
+                altura = f" a {int(m.group(2)) * 100} ft" if m.group(2) else ""
+                tipo_nube = f" [{m.group(3)}]" if m.group(3) else ""
+                nubes.append(f"{cobertura}{altura}{tipo_nube}")
+                idx += 1
+            else:
+                break
+        if nubes:
+            resultado['nubes'] = " | ".join(nubes)
+
+    # Temperatura / Punto de rocío
+    if idx < len(tokens):
+        m = re.match(r'^(M?\d{2})/(M?\d{2})$', tokens[idx])
+        if m:
+            def conv(s): return f"-{s[1:]}°C" if s.startswith('M') else f"{s}°C"
+            temp = conv(m.group(1))
+            dewp = conv(m.group(2))
+            resultado['temperatura'] = temp
+            resultado['rocio'] = dewp
+            # Diferencia pequeña → riesgo de niebla
+            t_val = int(m.group(1).replace('M','-'))
+            d_val = int(m.group(2).replace('M','-'))
+            if abs(t_val - d_val) <= 2:
+                resultado['alerta_niebla'] = True
+            idx += 1
+
+    # QNH
+    if idx < len(tokens):
+        m = re.match(r'^(Q|A)(\d{4})$', tokens[idx])
+        if m:
+            if m.group(1) == 'Q':
+                resultado['qnh'] = f"{m.group(2)} hPa"
+            else:
+                resultado['qnh'] = f"{int(m.group(2))/100:.2f} inHg"
+            idx += 1
+
+    # Tendencia / NOSIG / TEMPO
+    resto = " ".join(tokens[idx:])
+    if resto:
+        resultado['tendencia'] = resto
+
+    return resultado
+
+
 def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
     diff = abs(wind_dir - rwy_heading)
     theta = math.radians(diff)
     return abs(math.sin(theta) * wind_spd), math.cos(theta) * wind_spd
+
 
 # --- 4. INTERFAZ ---
 
