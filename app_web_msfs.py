@@ -173,12 +173,14 @@ def obtener_datos_simbrief(username):
     except Exception as e: return None, f"Excepción: {e}"
 
 def obtener_vuelo_real_api(api_key):
-    """Obtiene un vuelo real saliendo ahora desde un hub global usando AeroDataBox."""
+    """Obtiene un vuelo real saliendo desde un hub global usando AeroDataBox."""
     AEROPUERTOS_HUB = ["KJFK", "EGLL", "SAEZ", "SCEL", "OMDB", "YSSY", "RJAA", "LEMD", "LFPG", "EHAM", "KLAX", "SBGR", "KMIA", "SPJC"]
     origen_icao = random.choice(AEROPUERTOS_HUB)
 
+    # 🛠️ FIX 1: Ampliamos la ventana de 2 a 12 horas.
+    # Así evitamos los toques de queda nocturnos (ej. Europa de madrugada).
     now_utc = datetime.utcnow()
-    to_utc = now_utc + timedelta(hours=2)
+    to_utc = now_utc + timedelta(hours=12) 
     from_str = now_utc.strftime("%Y-%m-%dT%H:%M")
     to_str = to_utc.strftime("%Y-%m-%dT%H:%M")
 
@@ -198,11 +200,12 @@ def obtener_vuelo_real_api(api_key):
         for d in departures:
             if "movement" in d and "arrival" in d:
                 dest = d["arrival"].get("airport", {}).get("icao")
-                airline = d.get("airline", {}).get("name")
+                # 🛠️ FIX 2: Si no viene el nombre, intentamos buscar el código corto o ponemos "Desconocida"
+                airline = d.get("airline", {}).get("name") or d.get("airline", {}).get("iata") or "Aerolínea Desconocida"
                 flt_num = d.get("number")
                 aircraft = d.get("aircraft", {}).get("model", "Avión genérico")
 
-                if dest and airline and flt_num:
+                if dest and flt_num:
                     vuelos_validos.append({
                         "origen": origen_icao,
                         "destino": dest,
@@ -210,28 +213,14 @@ def obtener_vuelo_real_api(api_key):
                         "num": flt_num,
                         "avion": aircraft,
                         "duracion": "TBD",
-                        "info": f"Vuelo real programado (Hora local: {d['movement'].get('scheduledTimeLocal', 'Desconocida')})"
+                        "info": f"Vuelo real programado (Hora local: {d['movement'].get('scheduledTimeLocal', 'Desconocida')[:16]})"
                     })
 
         if vuelos_validos:
             return random.choice(vuelos_validos), None
-        return None, f"Sin vuelos comerciales ahora mismo desde {origen_icao}. Intentá de nuevo."
+        return None, f"Sin vuelos comerciales en las próximas 12h desde {origen_icao}. Intentá de nuevo."
     except Exception as e:
         return None, f"Error de conexión: {str(e)}"
-
-def obtener_aerolineas_inteligente():
-    lista = set(AEROLINEAS_BASE)
-    df = leer_vuelos()
-    if not df.empty and 'Aerolinea' in df.columns:
-        for a in df['Aerolinea'].dropna().unique():
-            if a.strip(): lista.add(a.strip())
-    return sorted(list(lista))
-
-def obtener_coords(icao):
-    if not isinstance(icao, str): return None
-    codigo = icao.strip().upper()
-    apt = AIRPORTS_DB.get(codigo)
-    return [apt['lat'], apt['lon']] if apt else AIRPORT_COORDS_FALLBACK.get(codigo, None)
 
 # --- 4. INTERFAZ ---
 
