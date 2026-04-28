@@ -490,7 +490,7 @@ def main_app():
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
         "📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa",
-        "☁️ Clima (METAR/TAF)", "🧰 Herramientas", "📊 Estadísticas"
+        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas", "📊 Estadísticas"
     ])
 
     # =========================================================
@@ -689,69 +689,345 @@ def main_app():
     # =========================================================
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico")
-        tab1, tab2 = st.tabs(["🔍 Buscar Clima", "🎓 Escuela Meteorológica"])
+        tab1, tab2, tab3 = st.tabs(["🔍 Buscar & Decodificar", "📡 TAF Comentado", "🎓 Referencia Rápida"])
+
+        # ---- TAB 1: BUSCAR + DECODIFICAR ----
         with tab1:
             with st.form("metar_search"):
                 col_s1, col_s2 = st.columns([3, 1])
-                icao = col_s1.text_input("Código ICAO", max_chars=4).upper()
-                if col_s2.form_submit_button("Buscar 🔎") and icao:
-                    datos, err = obtener_clima(icao)
-                    if datos:
-                        metar, taf = datos
-                        st.success(f"Reporte encontrado para **{icao}**")
-                        st.info(f"**METAR:**\n`{metar}`")
-                        st.warning(f"**TAF:**\n`{taf}`")
+                icao_input = col_s1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL, EGLL, KJFK")
+                buscar = col_s2.form_submit_button("Buscar 🔎")
+
+            if buscar and icao_input:
+                icao_q = icao_input.strip().upper()
+                datos, err = obtener_clima(icao_q)
+                if not datos:
+                    st.error(err)
+                else:
+                    metar_raw, taf_raw = datos
+                    # METAR raw
+                    st.subheader(f"METAR — {icao_q}")
+                    st.code(metar_raw, language=None)
+                    # Decodificado
+                    if metar_raw not in ("No disponible", "Error conexión"):
+                        dec = decodificar_metar(metar_raw)
+                        if dec.get('alerta_niebla'):
+                            st.warning("⚠️ Temp y punto de rocío muy cercanos — riesgo de niebla.")
+                        campos = [
+                            ("📍 Estación",    dec.get('estacion',    '—')),
+                            ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
+                            ("💨 Viento",      dec.get('viento',      '—')),
+                            ("👁️ Visibilidad", dec.get('visibilidad', '—')),
+                            ("🌡️ Temperatura", dec.get('temperatura', '—')),
+                            ("💧 Rocío",       dec.get('rocio',       '—')),
+                            ("🧭 QNH",         dec.get('qnh',         '—')),
+                            ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
+                        ]
+                        if dec.get('fenomenos'):
+                            campos.insert(4, ("⛈️ Fenómenos", dec['fenomenos']))
+                        for i in range(0, len(campos), 4):
+                            row_c = st.columns(4)
+                            for j, (lbl, val) in enumerate(campos[i:i+4]):
+                                row_c[j].metric(lbl, val)
+                        if dec.get('tendencia'):
+                            st.info(f"**Tendencia:** `{dec['tendencia']}`")
+                    st.divider()
+                    # TAF
+                    if taf_raw not in ("No disponible", "Error conexión"):
+                        st.subheader(f"TAF — {icao_q}")
+                        taf_fmt = taf_raw.strip() \
+                            .replace('BECMG', '\n  BECMG') \
+                            .replace('TEMPO', '\n  TEMPO') \
+                            .replace(' FM',   '\n  FM') \
+                            .replace('PROB',  '\n  PROB')
+                        st.code(taf_fmt, language=None)
+                        kws = []
+                        if 'BECMG' in taf_raw: kws.append("**BECMG** = cambio gradual permanente")
+                        if 'TEMPO' in taf_raw: kws.append("**TEMPO** = cambio temporal")
+                        if 'FM'    in taf_raw: kws.append("**FM** = cambio rápido desde esa hora")
+                        if 'PROB'  in taf_raw: kws.append("**PROB** = probabilidad de cambio")
+                        if 'TS'    in taf_raw: kws.append("**TS** = tormenta eléctrica")
+                        if 'NSW'   in taf_raw: kws.append("**NSW** = fin del mal tiempo")
+                        if kws:
+                            with st.expander("📖 Leyenda de este TAF"):
+                                for k in kws: st.markdown(f"- {k}")
                     else:
-                        st.error(err)
+                        st.info("TAF no disponible para este aeropuerto.")
+            elif buscar:
+                st.warning("Ingresá un código ICAO primero.")
+
+            # Decodificador manual
+            st.divider()
+            st.subheader("🔧 Decodificador manual")
+            st.caption("Pegá cualquier METAR para decodificarlo sin conexión a red.")
+            metar_manual = st.text_input("METAR", placeholder="Ej: SCEL 151400Z 18012KT 9999 SCT040 17/10 Q1014")
+            if metar_manual.strip():
+                dec = decodificar_metar(metar_manual.strip())
+                if dec:
+                    if dec.get('alerta_niebla'):
+                        st.warning("⚠️ Diferencia Temp/Rocío ≤ 2°C — posible niebla.")
+                    campos_m = [
+                        ("📍 Estación",    dec.get('estacion',    '—')),
+                        ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
+                        ("💨 Viento",      dec.get('viento',      '—')),
+                        ("👁️ Visibilidad", dec.get('visibilidad', '—')),
+                        ("🌡️ Temperatura", dec.get('temperatura', '—')),
+                        ("💧 Rocío",       dec.get('rocio',       '—')),
+                        ("🧭 QNH",         dec.get('qnh',         '—')),
+                        ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
+                    ]
+                    if dec.get('fenomenos'):
+                        campos_m.insert(4, ("⛈️ Fenómenos", dec['fenomenos']))
+                    for i in range(0, len(campos_m), 4):
+                        row_c = st.columns(4)
+                        for j, (lbl, val) in enumerate(campos_m[i:i+4]):
+                            row_c[j].metric(lbl, val)
+                    if dec.get('tendencia'):
+                        st.info(f"**Tendencia:** `{dec['tendencia']}`")
+
+        # ---- TAB 2: TAF COMENTADO ----
         with tab2:
-            st.title("🎓 Guía Definitiva de Lectura METAR/TAF")
-            with st.expander("1. Estructura Básica (Ejemplo)", expanded=True):
+            st.subheader("📡 ¿Cómo leer un TAF completo?")
+            st.markdown("El TAF es el pronóstico oficial del aeropuerto. Dura normalmente 24–30 horas.")
+            st.code("""TAF EGLL 151700Z 1518/1624 27015KT 9999 SCT030
+  BECMG 1520/1522 27008KT
+  TEMPO 1600/1606 4000 RADZ BKN008
+  PROB30 TEMPO 1606/1612 0800 FG BKN002
+  FM161200 29012KT 9999 FEW025""", language=None)
+            with st.expander("🔍 Línea por línea", expanded=True):
                 st.markdown("""
-                **Ejemplo:** `SCEL 091400Z 18010KT 9999 SCT030 18/12 Q1016`
-                1. **Lugar:** `SCEL` (Santiago, Chile).
-                2. **Fecha/Hora:** `091400Z` → Día 09, 14:00 Hora Zulú (UTC).
-                3. **Viento:** `18010KT` → Dirección 180° a 10 Nudos.
-                4. **Visibilidad:** `9999` → Más de 10 km.
-                5. **Nubes:** `SCT030` → Nubes dispersas a 3000 pies.
-                6. **Temp:** `18/12` → 18°C temperatura, 12°C punto de rocío.
-                7. **Presión:** `Q1016` → 1016 hPa.
-                """)
-            with st.expander("2. Fenómenos Meteorológicos"):
-                cols = st.columns(3)
-                with cols[0]:
-                    st.markdown("**Precipitación**\n* `RA`: Lluvia\n* `SN`: Nieve\n* `GR`: Granizo\n* `DZ`: Llovizna")
-                with cols[1]:
-                    st.markdown("**Oscurecimiento**\n* `FG`: Niebla <1km\n* `BR`: Neblina 1-5km\n* `HZ`: Bruma\n* `FU`: Humo")
-                with cols[2]:
-                    st.markdown("**Intensidad**\n* `-`: Ligero\n* `+`: Fuerte\n* `TS`: Tormenta\n* `VC`: En vecindad")
-            with st.expander("3. Cobertura de Nubes"):
+| Fragmento | Significado |
+|:---|:---|
+| `TAF EGLL` | Pronóstico de Londres Heathrow |
+| `151700Z` | Emitido el día 15 a las 17:00 UTC |
+| `1518/1624` | Válido desde día 15/18:00 hasta día 16/24:00 UTC |
+| `27015KT 9999 SCT030` | Base: viento 270°/15kt, vis >10km, nubes dispersas 3000ft |
+| `BECMG 1520/1522 27008KT` | Entre 20:00–22:00 el viento amainará a 8kt permanentemente |
+| `TEMPO 1600/1606 4000 RADZ BKN008` | Madrugada del 16: vis 4km con llovizna, techo 800ft ⚠️ |
+| `PROB30 TEMPO 1606/1612` | 30% de probabilidad de niebla con techo en 200ft |
+| `FM161200 29012KT 9999 FEW025` | Desde mediodía del 16: mejora general |
+""")
+            with st.expander("⚠️ Alertas que buscar siempre"):
                 st.markdown("""
-                | Código | Significado | Cobertura |
-                |:---|:---|:---|
-                | **FEW** | Escasas | 1/8 a 2/8 |
-                | **SCT** | Dispersas | 3/8 a 4/8 |
-                | **BKN** | Fragmentadas (Ceiling) | 5/8 a 7/8 |
-                | **OVC** | Cubierto | 8/8 |
-                | **NSC/SKC** | Sin nubes | Despejado |
-                """)
-            with st.expander("4. TAF: BECMG, TEMPO, FM"):
-                st.markdown("""
-                * **BECMG:** Cambio gradual y permanente.
-                * **TEMPO:** Cambio temporal, luego vuelve a normal.
-                * **FM:** Cambio rápido y total desde una hora exacta.
-                * **PROB30/40:** Probabilidad del 30% o 40%.
-                """)
-            with st.expander("5. Especiales: CAVOK, VRB, G"):
-                st.markdown("""
-                * **CAVOK:** Condiciones ideales. Visibilidad >10km, sin nubes bajo 5000ft.
-                * **VRB:** Viento variable (generalmente <5kt).
-                * **G (Gusts):** Ráfagas. Ej: `24015G25KT`.
-                * **NSW:** El mal tiempo terminó.
-                """)
+- **BKN/OVC < 010** → techo bajo 1000ft, posible aproximación por instrumentos
+- **Visibilidad < 0800** → mínimos de muchos procedimientos ILS
+- **TS** en cualquier parte → tormentas, planear alternado
+- **PROB30/40 + TEMPO** → clima inestable, monitorear en ruta
+- **FZRA / FZFG** → lluvia o niebla engelante, riesgo de hielo
+""")
+
+        # ---- TAB 3: REFERENCIA RÁPIDA ----
+        with tab3:
+            st.subheader("🎓 Referencia rápida METAR/TAF")
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                with st.expander("💨 Viento", expanded=True):
+                    st.markdown("""
+| Código | Significado |
+|:---|:---|
+| `27015KT` | 270° a 15 kt |
+| `27015G25KT` | 270°/15kt, ráfagas 25kt |
+| `VRB05KT` | Variable, 5 kt |
+| `00000KT` | Calma |
+""")
+                with st.expander("☁️ Nubes"):
+                    st.markdown("""
+| Código | Cobertura | ¿Techo? |
+|:---|:---|:---|
+| `FEW030` | 1–2/8 a 3000ft | No |
+| `SCT030` | 3–4/8 a 3000ft | No |
+| `BKN030` | 5–7/8 a 3000ft | **Sí** |
+| `OVC030` | 8/8 a 3000ft | **Sí** |
+| `VV004` | Niebla total, vis vertical 400ft | **Sí** |
+""")
+                with st.expander("🧭 Presión"):
+                    st.markdown("""
+- `Q1013` → hPa (Europa, Latinoamérica)
+- `A2992` → inHg (EE.UU.)
+- **1013.25 hPa = 29.92 inHg** (ISA estándar)
+""")
+            with col_g2:
+                with st.expander("⛈️ Fenómenos", expanded=True):
+                    st.markdown("""
+| Código | Significado |
+|:---|:---|
+| `RA / -RA / +RA` | Lluvia / ligera / fuerte |
+| `SN` | Nieve |
+| `DZ` | Llovizna |
+| `GR` | Granizo |
+| `FG` | Niebla (vis < 1km) |
+| `BR` | Neblina (1–5km) |
+| `HZ` | Bruma seca |
+| `TS / TSRA` | Tormenta / con lluvia |
+| `FZRA / FZFG` | Lluvia/niebla engelante |
+| `SH` | Chubasco (ej: `SHRA`) |
+| `VC` | En vecindad |
+""")
+                with st.expander("✅ Especiales"):
+                    st.markdown("""
+- **CAVOK** = Vis >10km + sin nubes <5000ft + sin precipitación
+- **NSC** = No Significant Cloud
+- **SKC/CLR** = Cielo despejado
+- **NOSIG** = Sin cambios en 2h
+- **NSW** = Cesó el mal tiempo
+- **SPECI** = METAR especial por cambio brusco
+""")
 
     # =========================================================
-    # 5. HERRAMIENTAS
+    # 5. VUELOS ALEATORIOS
     # =========================================================
+    elif menu == "🎲 Vuelos Aleatorios":
+        import random
+        st.header("🎲 Generador de Vuelos para el Simulador")
+        st.caption("Vuelos reales operados por aerolíneas reales. Cada vez que generás, sale uno diferente.")
+
+        # Base de vuelos reales por categoría
+        VUELOS_REALES = {
+            "✈️ Largo Radio (> 6h)": [
+                {"origen":"EGLL","destino":"KJFK","aerolinea":"British Airways","num":"BA112","avion":"Boeing 777-200","duracion":"7h 30m","info":"Londres → Nueva York. Uno de los vuelos transatlánticos más icónicos del mundo."},
+                {"origen":"OMDB","destino":"KLAX","aerolinea":"Emirates","num":"EK215","avion":"Airbus A380-800","duracion":"16h 15m","info":"Dubai → Los Ángeles. Uno de los vuelos más largos del mundo sin escala."},
+                {"origen":"YSSY","destino":"EGLL","aerolinea":"Qantas","num":"QF1","avion":"Boeing 787-9","duracion":"22h 00m","info":"Sídney → Londres vía Singapur. El famoso 'Canguro' de Qantas."},
+                {"origen":"KJFK","destino":"NZAA","aerolinea":"Air New Zealand","num":"NZ2","avion":"Boeing 787-9","duracion":"17h 40m","info":"Nueva York → Auckland. Un clásico del Pacífico Sur."},
+                {"origen":"LFPG","destino":"RJAA","aerolinea":"Air France","num":"AF276","avion":"Boeing 777-300ER","duracion":"12h 30m","info":"París → Tokio Narita. Ruta sobre Siberia."},
+                {"origen":"LEMD","destino":"SAEZ","aerolinea":"Aerolíneas Argentinas","num":"AR1140","avion":"Boeing 787-9","duracion":"13h 00m","info":"Madrid → Buenos Aires. La ruta más clásica de Latinoamérica a Europa."},
+                {"origen":"EGLL","destino":"OMDB","aerolinea":"Emirates","num":"EK3","avion":"Airbus A380-800","duracion":"7h 05m","info":"Londres → Dubai. Con el A380 más famoso del mundo."},
+                {"origen":"KLAX","destino":"RJAA","aerolinea":"Japan Airlines (JAL)","num":"JL62","avion":"Boeing 777-300ER","duracion":"11h 30m","info":"Los Ángeles → Tokio. Cruzando el Pacífico Norte."},
+                {"origen":"SBGR","destino":"LFPG","aerolinea":"Air France","num":"AF444","avion":"Boeing 777-300ER","duracion":"11h 20m","info":"São Paulo → París. El puente aéreo Brasil–Europa."},
+                {"origen":"FAOR","destino":"EGLL","aerolinea":"South African Airways","num":"SA234","avion":"Airbus A340-600","duracion":"11h 00m","info":"Johannesburgo → Londres. Clásica ruta sudafricana."},
+            ],
+            "🛫 Medio Radio (2–6h)": [
+                {"origen":"SCEL","destino":"SAEZ","aerolinea":"LATAM Airlines","num":"LA400","avion":"Airbus A320","duracion":"2h 15m","info":"Santiago → Buenos Aires. El puente aéreo más transitado de Sudamérica."},
+                {"origen":"LEMD","destino":"LFPG","aerolinea":"Iberia","num":"IB3166","avion":"Airbus A321","duracion":"2h 05m","info":"Madrid → París. Ruta corta intraeuropea muy popular."},
+                {"origen":"KJFK","destino":"KMIA","aerolinea":"American Airlines","num":"AA1","avion":"Boeing 737-800","duracion":"3h 10m","info":"Nueva York → Miami. Corredor doméstico icónico de EE.UU."},
+                {"origen":"EHAM","destino":"LEMD","aerolinea":"KLM","num":"KL1706","avion":"Boeing 737-800","duracion":"2h 40m","info":"Ámsterdam → Madrid. Ruta intraeuropea KLM clásica."},
+                {"origen":"MMMX","destino":"KJFK","aerolinea":"Aeroméxico","num":"AM002","avion":"Boeing 787-8","duracion":"4h 30m","info":"Ciudad de México → Nueva York. Principal enlace México–EE.UU."},
+                {"origen":"SKBO","destino":"MPTO","aerolinea":"Copa Airlines","num":"CM303","avion":"Boeing 737-800","duracion":"1h 40m","info":"Bogotá → Ciudad de Panamá. El hub de Copa en acción."},
+                {"origen":"FACT","destino":"FAOR","aerolinea":"South African Airways","num":"SA407","avion":"Airbus A319","duracion":"2h 10m","info":"Ciudad del Cabo → Johannesburgo. La ruta doméstica más importante de Sudáfrica."},
+                {"origen":"RJAA","destino":"RKSI","aerolinea":"All Nippon Airways (ANA)","num":"NH963","avion":"Boeing 767-300","duracion":"2h 25m","info":"Tokio → Seúl Incheon. Uno de los corredores asiáticos más concurridos."},
+                {"origen":"EGLL","destino":"LIRF","aerolinea":"British Airways","num":"BA548","avion":"Airbus A320 Neo","duracion":"2h 30m","info":"Londres → Roma Fiumicino. Turismo europeo clásico."},
+                {"origen":"SAEZ","destino":"SBGR","aerolinea":"LATAM Airlines Brasil","num":"LA8080","avion":"Airbus A320","duracion":"3h 00m","info":"Buenos Aires → São Paulo. El puente aéreo más largo de Sudamérica."},
+                {"origen":"SPJC","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA2037","avion":"Airbus A319","duracion":"3h 30m","info":"Lima → Santiago. Ruta andina clásica de la costa del Pacífico."},
+                {"origen":"OMDB","destino":"VABB","aerolinea":"flydubai","num":"FZ551","avion":"Boeing 737 MAX 8","duracion":"3h 15m","info":"Dubai → Mumbai. El puente entre el Golfo y la India."},
+            ],
+            "🛩️ Corto Radio (< 2h)": [
+                {"origen":"LEMD","destino":"LEBL","aerolinea":"Vueling","num":"VY1803","avion":"Airbus A320","duracion":"1h 10m","info":"Madrid → Barcelona. El puente aéreo más transitado de Europa."},
+                {"origen":"EGLL","destino":"EGPH","aerolinea":"British Airways","num":"BA1478","avion":"Airbus A319","duracion":"1h 20m","info":"Londres Heathrow → Edimburgo. Ruta doméstica UK muy frecuente."},
+                {"origen":"KJFK","destino":"KBOS","aerolinea":"JetBlue","num":"B61025","avion":"Airbus A320","duracion":"1h 10m","info":"Nueva York → Boston. Corredor noreste de EE.UU."},
+                {"origen":"SCEL","destino":"SCTE","aerolinea":"Sky Airline","num":"H2201","avion":"Airbus A320","duracion":"1h 30m","info":"Santiago → Temuco. Ruta doméstica chilena popular."},
+                {"origen":"EHAM","destino":"EGLL","aerolinea":"KLM","num":"KL1009","avion":"Embraer E190","duracion":"1h 05m","info":"Ámsterdam → Londres. La ruta que conecta dos de los aeropuertos más ocupados de Europa."},
+                {"origen":"LIRF","destino":"LICJ","aerolinea":"Alitalia (ITA Airways)","num":"AZ696","avion":"Airbus A319","duracion":"1h 05m","info":"Roma → Palermo. Puente aéreo peninsular–isla icónico."},
+                {"origen":"SAEZ","destino":"SAME","aerolinea":"Aerolíneas Argentinas","num":"AR1531","avion":"Boeing 737-700","duracion":"1h 35m","info":"Buenos Aires → Mendoza. Clásico doméstico argentino con los Andes de fondo."},
+                {"origen":"RKSI","destino":"RCTP","aerolinea":"Asiana Airlines","num":"OZ711","avion":"Airbus A321","duracion":"1h 55m","info":"Seúl → Taipei. El corredor del noreste asiático."},
+            ],
+            "🌟 Rutas Especiales / Desafiantes": [
+                {"origen":"BGGH","destino":"EKCH","aerolinea":"Air Greenland","num":"GL451","avion":"Airbus A330-900","duracion":"4h 30m","info":"Nuuk (Groenlandia) → Copenhague. Sobrevolando el Ártico. Pocas pistas tan aisladas como Nuuk."},
+                {"origen":"NZAA","destino":"NTAA","aerolinea":"Air New Zealand","num":"NZ1","avion":"Boeing 787-9","duracion":"5h 30m","info":"Auckland → Papeete (Tahití). Cruzando el Pacífico Sur hacia la Polinesia."},
+                {"origen":"SCCI","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA336","avion":"Airbus A319","duracion":"3h 40m","info":"Punta Arenas → Santiago. Desde el extremo austral del mundo hasta la capital. Una de las rutas más australes del mundo."},
+                {"origen":"LPLA","destino":"LPPT","aerolinea":"SATA Air Açores","num":"SP191","avion":"Airbus A320","duracion":"2h 10m","info":"Azores → Lisboa. Aterrizaje en la isla Terceira, famoso por el viento cruzado."},
+                {"origen":"EGLL","destino":"EGPD","aerolinea":"British Airways","num":"BA1336","avion":"Embraer E190","duracion":"1h 30m","info":"Londres → Aberdeen. Vuelo sobre Escocia, destino de la industria petrolera del Mar del Norte."},
+                {"origen":"VIDP","destino":"VQPR","aerolinea":"Druk Air","num":"KB200","avion":"Airbus A319","duracion":"1h 50m","info":"Delhi → Paro (Bután). El aeropuerto de Paro es uno de los más peligrosos del mundo: rodeado de montañas del Himalaya."},
+                {"origen":"KLAX","destino":"PHNL","aerolinea":"Hawaiian Airlines","num":"HA2","avion":"Airbus A330-900","duracion":"5h 45m","info":"Los Ángeles → Honolulú. Cruzando el Pacífico Norte hacia el paraíso."},
+                {"origen":"FACT","destino":"FHSH","aerolinea":"Airlink","num":"4Z541","avion":"Embraer E170","duracion":"2h 00m","info":"Ciudad del Cabo → Santa Elena. Isla remota del Atlántico Sur, destino de Napoleón."},
+            ],
+        }
+
+        # Filtros
+        col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+        with col_f1:
+            categoria = st.selectbox("Categoría", ["🎲 Sorpréndeme (cualquiera)"] + list(VUELOS_REALES.keys()))
+        with col_f2:
+            regiones_avion = ["Cualquier avión"] + sorted(list(set(
+                v["avion"] for vuelos in VUELOS_REALES.values() for v in vuelos
+            )))
+            filtro_avion = st.selectbox("Filtrar por avión", regiones_avion)
+        with col_f3:
+            st.write("")
+            st.write("")
+            generar = st.button("🎲 Generar vuelo", use_container_width=True)
+
+        # Seleccionar vuelo
+        if generar or "vuelo_random" not in st.session_state:
+            if categoria == "🎲 Sorpréndeme (cualquiera)":
+                pool = [v for vuelos in VUELOS_REALES.values() for v in vuelos]
+            else:
+                pool = VUELOS_REALES.get(categoria, [])
+            if filtro_avion != "Cualquier avión":
+                pool = [v for v in pool if v["avion"] == filtro_avion]
+            if pool:
+                st.session_state["vuelo_random"] = random.choice(pool)
+            else:
+                st.warning("No hay vuelos con esos filtros. Probá otra combinación.")
+                st.stop()
+
+        v = st.session_state.get("vuelo_random")
+        if not v:
+            st.info("Presioná 'Generar vuelo' para empezar.")
+            st.stop()
+
+        # Mostrar tarjeta del vuelo
+        st.divider()
+        c_card1, c_card2 = st.columns([3, 2])
+        with c_card1:
+            st.markdown(f"## 🛫 {v['origen']}  →  🛬 {v['destino']}")
+            st.markdown(f"**{v['aerolinea']}** — Vuelo `{v['num']}`")
+            st.markdown(f"_{v['info']}_")
+
+        with c_card2:
+            st.metric("✈️ Avión", v["avion"])
+            st.metric("⏱️ Duración estimada", v["duracion"])
+
+        # Info del aeropuerto con airportsdata
+        st.divider()
+        col_ap1, col_ap2 = st.columns(2)
+        for col, icao_code, label in [(col_ap1, v["origen"], "🛫 Origen"), (col_ap2, v["destino"], "🛬 Destino")]:
+            apt = AIRPORTS_DB.get(icao_code, {})
+            with col:
+                st.markdown(f"**{label} — {icao_code}**")
+                if apt:
+                    st.markdown(f"**{apt.get('name','—')}**")
+                    st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
+                    st.caption(f"🌐 {apt.get('lat',''):.4f}°, {apt.get('lon',''):.4f}°")
+                    st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
+                else:
+                    st.caption("Aeropuerto no encontrado en base de datos.")
+
+        # Mini mapa de la ruta
+        c_orig = obtener_coords(v["origen"])
+        c_dest = obtener_coords(v["destino"])
+        if c_orig and c_dest:
+            st.divider()
+            st.markdown("**🗺️ Ruta del vuelo**")
+            m_rand = folium.Map(
+                location=[(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2],
+                zoom_start=3, tiles="CartoDB dark_matter"
+            )
+            ruta_curva = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
+            folium.PolyLine(ruta_curva, color="#39ff14", weight=3, opacity=0.8).add_to(m_rand)
+            folium.Marker(c_orig, tooltip=v["origen"],
+                          icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_rand)
+            folium.Marker(c_dest, tooltip=v["destino"],
+                          icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_rand)
+            # Calcular distancia
+            dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1]))
+            st_folium(m_rand, width=900, height=380)
+            st.caption(f"📏 Distancia gran círculo: **{dist_nm} NM** ({round(dist_nm*1.852)} km)")
+
+        # Botón para cargar en el formulario de registro
+        st.divider()
+        if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+            st.session_state.form_data = {
+                "origen": v["origen"],
+                "destino": v["destino"],
+                "ruta": "",
+                "no_vuelo": v["num"],
+                "tiempo": 0.0,
+                "puerta_salida": "",
+                "puerta_llegada": "",
+            }
+            st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
+            st.success(f"✅ Vuelo {v['num']} cargado. Andá a '📋 Registro de Vuelo' para completarlo.")
+
+
     elif menu == "🧰 Herramientas":
         st.header("🧰 Herramientas de Vuelo")
         t1, t2, t3, t4 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor", "⛽ Combustible"])
