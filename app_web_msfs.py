@@ -221,7 +221,14 @@ def obtener_vuelo_real_api(api_key):
         return None, f"Sin vuelos comerciales en las próximas 12h desde {origen_icao}. Intentá de nuevo."
     except Exception as e:
         return None, f"Error de conexión: {str(e)}"
-
+def obtener_coords(icao):
+    if not isinstance(icao, str):
+        return None
+    codigo = icao.strip().upper()
+    aeropuerto = AIRPORTS_DB.get(codigo)
+    if aeropuerto:
+        return [aeropuerto['lat'], aeropuerto['lon']]
+    return AIRPORT_COORDS_FALLBACK.get(codigo, None)
 # --- 4. INTERFAZ ---
 
 def main_app():
