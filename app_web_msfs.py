@@ -173,54 +173,63 @@ def obtener_datos_simbrief(username):
     except Exception as e: return None, f"Excepción: {e}"
 
 def obtener_vuelo_real_api(api_key):
-    """Obtiene un vuelo real saliendo desde un hub global usando AeroDataBox."""
+    """Obtiene un vuelo real saliendo desde un hub global usando AeroDataBox con reintentos."""
     AEROPUERTOS_HUB = ["KJFK", "EGLL", "SAEZ", "SCEL", "OMDB", "YSSY", "RJAA", "LEMD", "LFPG", "EHAM", "KLAX", "SBGR", "KMIA", "SPJC"]
-    origen_icao = random.choice(AEROPUERTOS_HUB)
+    
+    # Intentamos hasta 3 veces con aeropuertos distintos si la API devuelve una lista vacía
+    for intento in range(3):
+        origen_icao = random.choice(AEROPUERTOS_HUB)
 
-    # 🛠️ FIX 1: Ampliamos la ventana de 2 a 12 horas.
-    # Así evitamos los toques de queda nocturnos (ej. Europa de madrugada).
-    now_utc = datetime.utcnow()
-    to_utc = now_utc + timedelta(hours=12) 
-    from_str = now_utc.strftime("%Y-%m-%dT%H:%M")
-    to_str = to_utc.strftime("%Y-%m-%dT%H:%M")
+        # Usamos 11 horas para mantenernos seguros dentro del límite estricto de 12h de la API
+        now_utc = datetime.utcnow()
+        to_utc = now_utc + timedelta(hours=11) 
+        from_str = now_utc.strftime("%Y-%m-%dT%H:%M")
+        to_str = to_utc.strftime("%Y-%m-%dT%H:%M")
 
-    url = f"https://aerodatabox.p.rapidapi.com/flights/airports/icao/{origen_icao}/{from_str}/{to_str}"
-    headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com"}
-    querystring = {"withLeg": "true", "direction": "Departure", "withCancelled": "false", "withPrivate": "false"}
+        url = f"https://aerodatabox.p.rapidapi.com/flights/airports/icao/{origen_icao}/{from_str}/{to_str}"
+        headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com"}
+        querystring = {"withLeg": "true", "direction": "Departure", "withCancelled": "false", "withPrivate": "false"}
 
-    try:
-        response = requests.get(url, headers=headers, params=querystring, timeout=10)
-        if response.status_code != 200:
-            return None, f"Error API AeroDataBox (Cod: {response.status_code}). Revisá tu API Key."
+        try:
+            response = requests.get(url, headers=headers, params=querystring, timeout=10)
+            
+            # Si la respuesta es exitosa, procesamos los datos
+            if response.status_code == 200:
+                data = response.json()
+                departures = data.get("departures", [])
+                vuelos_validos = []
 
-        data = response.json()
-        departures = data.get("departures", [])
-        vuelos_validos = []
+                for d in departures:
+                    if "movement" in d and "arrival" in d:
+                        dest = d["arrival"].get("airport", {}).get("icao")
+                        airline = d.get("airline", {}).get("name") or d.get("airline", {}).get("iata") or "Aerolínea Desconocida"
+                        flt_num = d.get("number")
+                        aircraft = d.get("aircraft", {}).get("model", "Avión genérico")
 
-        for d in departures:
-            if "movement" in d and "arrival" in d:
-                dest = d["arrival"].get("airport", {}).get("icao")
-                # 🛠️ FIX 2: Si no viene el nombre, intentamos buscar el código corto o ponemos "Desconocida"
-                airline = d.get("airline", {}).get("name") or d.get("airline", {}).get("iata") or "Aerolínea Desconocida"
-                flt_num = d.get("number")
-                aircraft = d.get("aircraft", {}).get("model", "Avión genérico")
+                        if dest and flt_num:
+                            vuelos_validos.append({
+                                "origen": origen_icao,
+                                "destino": dest,
+                                "aerolinea": airline,
+                                "num": flt_num,
+                                "avion": aircraft,
+                                "duracion": "TBD",
+                                "info": f"Vuelo real programado (Hora local: {d['movement'].get('scheduledTimeLocal', 'Desconocida')[:16]})"
+                            })
 
-                if dest and flt_num:
-                    vuelos_validos.append({
-                        "origen": origen_icao,
-                        "destino": dest,
-                        "aerolinea": airline,
-                        "num": flt_num,
-                        "avion": aircraft,
-                        "duracion": "TBD",
-                        "info": f"Vuelo real programado (Hora local: {d['movement'].get('scheduledTimeLocal', 'Desconocida')[:16]})"
-                    })
+                # Si encontró vuelos válidos, devuelve uno y corta el bucle
+                if vuelos_validos:
+                    return random.choice(vuelos_validos), None
+                
+                # Si la lista vuelve vacía, el bucle sigue e intenta con otro aeropuerto...
 
-        if vuelos_validos:
-            return random.choice(vuelos_validos), None
-        return None, f"Sin vuelos comerciales en las próximas 12h desde {origen_icao}. Intentá de nuevo."
-    except Exception as e:
-        return None, f"Error de conexión: {str(e)}"
+        except Exception as e:
+            # Si hay un error de conexión, lo ignoramos temporalmente y probamos de nuevo
+            pass 
+
+    # Si después de 3 intentos distintos no encontró nada, recién ahí avisa
+    return None, "Los radares están tranquilos. No se encontraron vuelos comerciales en los aeropuertos escaneados. Intentá de nuevo."
+    
 def obtener_coords(icao):
     if not isinstance(icao, str):
         return None
