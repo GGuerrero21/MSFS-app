@@ -879,33 +879,11 @@ def main_app():
     elif menu == "🎲 Vuelos Aleatorios":
         import random
 
-        # ------------------------------------------------------------------
-        # Helpers OpenSky
-        # ------------------------------------------------------------------
-        def obtener_token_opensky(client_id, client_secret):
-            """Intercambia client_id/secret por un Bearer token OAuth2."""
-            try:
-                r = requests.post(
-                    "https://auth.opensky-network.org/auth/realms/opensky-network"
-                    "/protocol/openid-connect/token",
-                    data={
-                        "grant_type": "client_credentials",
-                        "client_id": client_id,
-                        "client_secret": client_secret,
-                    },
-                    timeout=8,
-                )
-                if r.status_code == 200:
-                    return r.json().get("access_token"), None
-                return None, f"Auth error {r.status_code}"
-            except Exception as e:
-                return None, str(e)
-
-        # Mapa de tipo de avión → categoría para filtro
+        # Mapa tipo ICAO → nombre legible
         ICAO_TYPE_MODELS = {
             "A319": "Airbus A319", "A320": "Airbus A320", "A20N": "Airbus A320 Neo",
-            "A321": "Airbus A321", "A21N": "Airbus A321 Neo", "A332": "Airbus A330-900",
-            "A333": "Airbus A330-900", "A339": "Airbus A330-900", "A346": "Airbus A340-600",
+            "A321": "Airbus A321", "A21N": "Airbus A321 Neo", "A332": "Airbus A330-200",
+            "A333": "Airbus A330-300", "A339": "Airbus A330-900", "A346": "Airbus A340-600",
             "A359": "Airbus A350-900", "A35K": "Airbus A350-1000", "A388": "Airbus A380-800",
             "B736": "Boeing 737-600", "B737": "Boeing 737-700", "B738": "Boeing 737-800",
             "B739": "Boeing 737-900", "B38M": "Boeing 737 MAX 8", "B748": "Boeing 747-8",
@@ -913,136 +891,175 @@ def main_app():
             "B788": "Boeing 787-8", "B789": "Boeing 787-9", "B78X": "Boeing 787-10",
             "E170": "Embraer E170", "E175": "Embraer E175", "E190": "Embraer E190",
             "E195": "Embraer E195", "AT45": "ATR 42-600", "AT75": "ATR 72-600",
+            "DH8D": "Dash 8 Q400", "CRJ9": "CRJ-900", "CRJ7": "CRJ-700",
+            "C172": "Cessna 172", "C208": "Cessna Caravan",
         }
 
-        @st.cache_data(ttl=60)
-        def obtener_vuelo_live_completo(token):
+        @st.cache_data(ttl=30)
+        def obtener_vuelo_fr24():
             """
-            Estrategia de 2 pasos:
-            1. Obtiene snapshot de estados (posición actual de todos los aviones).
-            2. Para el avión elegido, llama a /flights/aircraft para obtener
-               estDepartureAirport y estArrivalAirport reales del vuelo en curso.
-            Retorna un dict con toda la info necesaria.
+            Usa FlightRadarAPI (SDK no oficial, educativo) para obtener
+            un vuelo real en curso con origen, destino, avión y aerolínea.
+            Retorna (dict, error_str).
             """
-            import time as _time
-
-            # ── PASO 1: snapshot de estados ──────────────────────────────────
             try:
-                r_states = requests.get(
-                    "https://opensky-network.org/api/states/all",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=15,
-                )
-                if r_states.status_code != 200:
-                    return None, f"OpenSky estados error {r_states.status_code}"
-                estados = r_states.json().get("states", []) or []
+                from FlightRadar24 import FlightRadar24API
+            except ImportError:
+                return None, "Instalá `FlightRadarAPI` en requirements.txt"
+
+            try:
+                fr = FlightRadar24API()
+                vuelos = fr.get_flights()
+                if not vuelos:
+                    return None, "No se obtuvieron vuelos."
+
+                # Filtrar: en vuelo, con origen Y destino conocidos
+                candidatos = [
+                    v for v in vuelos
+                    if getattr(v, 'origin_airport_iata', None)
+                    and getattr(v, 'destination_airport_iata', None)
+                    and getattr(v, 'altitude', 0) > 5000
+                    and not getattr(v, 'on_ground', True)
+                ]
+
+                if not candidatos:
+                    return None, "No se encontraron vuelos con ruta completa ahora mismo."
+
+                random.shuffle(candidatos)
+
+                # Intentar hasta 6 hasta obtener datos de detalle completos
+                for vuelo_base in candidatos[:6]:
+                    try:
+                        det = fr.get_flight_details(vuelo_base)
+                        vuelo_base.set_flight_details(det)
+
+                        orig_iata  = getattr(vuelo_base, 'origin_airport_iata',  '') or ''
+                        dest_iata  = getattr(vuelo_base, 'destination_airport_iata', '') or ''
+                        callsign   = (getattr(vuelo_base, 'callsign', '') or '').strip()
+                        aerolinea  = getattr(vuelo_base, 'airline_short_name', '') or \
+                                     getattr(vuelo_base, 'airline_name', '') or ''
+                        tipo_icao  = (getattr(vuelo_base, 'aircraft_code', '') or '').strip().upper()
+                        registro   = getattr(vuelo_base, 'registration', '') or ''
+                        alt_ft     = int(getattr(vuelo_base, 'altitude', 0))
+                        vel_kt     = int(getattr(vuelo_base, 'ground_speed', 0))
+                        heading    = int(getattr(vuelo_base, 'heading', 0))
+                        lat        = float(getattr(vuelo_base, 'latitude', 0))
+                        lon        = float(getattr(vuelo_base, 'longitude', 0))
+
+                        # Convertir IATA → ICAO usando airportsdata
+                        # airportsdata también tiene índice IATA
+                        DB_IATA = airportsdata.load('IATA')
+                        orig_icao = DB_IATA.get(orig_iata, {}).get('icao', orig_iata) if orig_iata else '????'
+                        dest_icao = DB_IATA.get(dest_iata, {}).get('icao', dest_iata) if dest_iata else '????'
+
+                        modelo = ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or 'Desconocido')
+
+                        # ETA
+                        eta_ts = getattr(vuelo_base, 'time_details', {})
+                        eta_str = None
+                        if isinstance(eta_ts, dict):
+                            eta_real = eta_ts.get('estimated', {}).get('arrival')
+                            if eta_real:
+                                from datetime import datetime as _dt
+                                try:
+                                    eta_str = _dt.utcfromtimestamp(eta_real).strftime('%H:%M UTC')
+                                except Exception:
+                                    pass
+
+                        return {
+                            "callsign":    callsign or "N/A",
+                            "aerolinea":   aerolinea,
+                            "origen_icao": orig_icao,
+                            "destino_icao":dest_icao,
+                            "origen_iata": orig_iata,
+                            "destino_iata":dest_iata,
+                            "tipo_icao":   tipo_icao,
+                            "modelo":      modelo,
+                            "registro":    registro,
+                            "alt_ft":      alt_ft,
+                            "vel_kt":      vel_kt,
+                            "heading":     heading,
+                            "lat":         lat,
+                            "lon":         lon,
+                            "eta":         eta_str,
+                        }, None
+
+                    except Exception:
+                        continue
+
+                return None, "No se pudo obtener detalle de ningún vuelo. Intentá de nuevo."
+
             except Exception as e:
-                return None, str(e)
-
-            # Filtrar: en vuelo, con callsign comercial (≥5 chars), altitud >5000ft
-            candidatos = []
-            for s in estados:
-                callsign = (s[1] or "").strip()
-                on_ground = s[13]
-                lat, lon = s[6], s[5]
-                alt_m = s[7] or 0
-                vel_ms = s[9] or 0
-                if (not callsign or on_ground or alt_m < 1500
-                        or lat is None or len(callsign) < 5):
-                    continue
-                candidatos.append({
-                    "callsign": callsign,
-                    "icao24": s[0],
-                    "pais": s[2] or "",
-                    "lat": lat, "lon": lon,
-                    "alt_ft": round(alt_m * 3.28084),
-                    "vel_kt": round(vel_ms * 1.94384),
-                    "heading": round(s[10] or 0),
-                    "squawk": s[14] or "",
-                })
-
-            if not candidatos:
-                return None, "No se encontraron vuelos comerciales en curso."
-
-            # Mezclar para variar; intentar hasta 8 candidatos hasta encontrar
-            # uno con datos de ruta completos
-            random.shuffle(candidatos)
-            ahora = int(_time.time())
-
-            for elegido in candidatos[:8]:
-                icao24 = elegido["icao24"]
-                # ── PASO 2: historial del vuelo (últimas 2h) ──────────────────
-                try:
-                    begin = ahora - 7200  # 2 horas atrás
-                    r_fl = requests.get(
-                        "https://opensky-network.org/api/flights/aircraft",
-                        params={"icao24": icao24, "begin": begin, "end": ahora},
-                        headers={"Authorization": f"Bearer {token}"},
-                        timeout=10,
-                    )
-                    if r_fl.status_code != 200:
-                        continue
-                    vuelos_hist = r_fl.json() or []
-                    if not vuelos_hist:
-                        continue
-                    # El vuelo más reciente es el último
-                    info_vuelo = vuelos_hist[-1]
-                    orig = (info_vuelo.get("estDepartureAirport") or "").strip().upper()
-                    dest = (info_vuelo.get("estArrivalAirport") or "").strip().upper()
-                    callsign_real = (info_vuelo.get("callsign") or elegido["callsign"]).strip()
-                    tipo_icao = (info_vuelo.get("aircraftType") or "").upper()[:4]
-
-                    # Necesitamos al menos el origen para que valga la pena
-                    if not orig:
-                        continue
-
-                    elegido["callsign"] = callsign_real
-                    elegido["origen_icao"] = orig
-                    elegido["destino_icao"] = dest if dest else "????"
-                    elegido["tipo_icao"] = tipo_icao
-                    elegido["modelo"] = ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or "Desconocido")
-                    return elegido, None
-
-                except Exception:
-                    continue
-
-            # Si ninguno tuvo datos de ruta, devolver el primero con origen/destino vacíos
-            elegido = candidatos[0]
-            elegido["origen_icao"] = "????"
-            elegido["destino_icao"] = "????"
-            elegido["tipo_icao"] = ""
-            elegido["modelo"] = "Desconocido"
-            return elegido, "⚠️ No se encontró ruta para este vuelo — origen/destino estimados."
+                return None, f"Error con FlightRadarAPI: {e}"
 
         # ------------------------------------------------------------------
         # UI principal
         # ------------------------------------------------------------------
         st.header("🎲 Vuelos Reales para el Simulador")
 
-        # Detectar credenciales
-        tiene_opensky = (
-            "opensky" in st.secrets
-            and st.secrets["opensky"].get("client_id")
-            and st.secrets["opensky"].get("client_secret")
+        modo_fuente = st.radio(
+            "Fuente de vuelos",
+            ["🛰️ En vivo (Flightradar24)", "📚 Base curada"],
+            horizontal=True,
         )
 
-        if tiene_opensky:
-            modo_fuente = st.radio(
-                "Fuente de vuelos",
-                ["🛰️ En vivo (OpenSky Network)", "📚 Base curada"],
-                horizontal=True,
-            )
-        else:
-            modo_fuente = "📚 Base curada"
-            st.info(
-                "💡 **Tip:** Para vuelos 100% reales en vivo, agregá tus credenciales gratuitas "
-                "de [OpenSky Network](https://opensky-network.org) en los **Secrets** de Streamlit:\n"
-                "```toml\n[opensky]\nclient_id = \"tu_client_id\"\nclient_secret = \"tu_secret\"\n```"
+        # ── MODO EN VIVO ──────────────────────────────────────────────────
+        if modo_fuente == "🛰️ En vivo (Flightradar24)":
+            col_btn, col_hint = st.columns([1, 3])
+            with col_btn:
+                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
+            with col_hint:
+                st.caption("Datos reales de Flightradar24: origen, destino, aerolínea y tipo de avión en tiempo real.")
+
+            if generar_live or "vuelo_live" not in st.session_state:
+                obtener_vuelo_fr24.clear()   # forzar refresh en cada click
+                with st.spinner("Conectando con Flightradar24 y buscando un vuelo con ruta completa…"):
+                    v_live, err_live = obtener_vuelo_fr24()
+                if not v_live:
+                    st.error(f"No se pudo obtener un vuelo: {err_live}")
+                    st.stop()
+                st.session_state["vuelo_live"] = v_live
+
+            v = st.session_state["vuelo_live"]
+
+            dist = mostrar_tarjeta_vuelo(
+                orig_icao  = v["origen_icao"],
+                dest_icao  = v["destino_icao"],
+                callsign   = v["callsign"],
+                modelo     = v.get("modelo", "Desconocido"),
+                aerolinea  = v.get("aerolinea"),
+                num_vuelo  = v["callsign"],
+                alt_ft     = v["alt_ft"],
+                vel_kt     = v["vel_kt"],
+                heading    = v["heading"],
+                lat_actual = v["lat"],
+                lon_actual = v["lon"],
+                es_live    = True,
             )
 
-        # ──────────────────────────────────────────────────────────────────
-        # HELPER UI: tarjeta de vuelo (compartida entre modo live y curado)
-        # ──────────────────────────────────────────────────────────────────
+            # ETA y matrícula si están disponibles
+            extras = []
+            if v.get("registro"):   extras.append(f"✈️ Matrícula: `{v['registro']}`")
+            if v.get("eta"):        extras.append(f"🕐 ETA: **{v['eta']}**")
+            if v.get("tipo_icao"):  extras.append(f"🔤 Tipo ICAO: `{v['tipo_icao']}`")
+            if extras:
+                st.caption("  |  ".join(extras))
+
+            st.divider()
+            if st.button("📋 Cargar en el Registro", use_container_width=True):
+                horas_est = (dist / 480) if dist else 0.0
+                st.session_state.form_data = {
+                    "origen":       v["origen_icao"],
+                    "destino":      v["destino_icao"],
+                    "ruta":         "",
+                    "no_vuelo":     v["callsign"],
+                    "tiempo":       round(horas_est, 1),
+                    "puerta_salida": "",
+                    "puerta_llegada": "",
+                }
+                if v.get("aerolinea"):
+                    st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
+                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo'.")
         def mostrar_tarjeta_vuelo(orig_icao, dest_icao, callsign, modelo,
                                   duracion=None, aerolinea=None, num_vuelo=None,
                                   alt_ft=None, vel_kt=None, heading=None,
