@@ -901,102 +901,125 @@ def main_app():
             except Exception as e:
                 return None, str(e)
 
-        @st.cache_data(ttl=45)
-        def obtener_vuelos_opensky(token):
+        # Mapa de tipo de avión → categoría para filtro
+        ICAO_TYPE_MODELS = {
+            "A319": "Airbus A319", "A320": "Airbus A320", "A20N": "Airbus A320 Neo",
+            "A321": "Airbus A321", "A21N": "Airbus A321 Neo", "A332": "Airbus A330-900",
+            "A333": "Airbus A330-900", "A339": "Airbus A330-900", "A346": "Airbus A340-600",
+            "A359": "Airbus A350-900", "A35K": "Airbus A350-1000", "A388": "Airbus A380-800",
+            "B736": "Boeing 737-600", "B737": "Boeing 737-700", "B738": "Boeing 737-800",
+            "B739": "Boeing 737-900", "B38M": "Boeing 737 MAX 8", "B748": "Boeing 747-8",
+            "B772": "Boeing 777-200", "B77L": "Boeing 777-200LR", "B77W": "Boeing 777-300ER",
+            "B788": "Boeing 787-8", "B789": "Boeing 787-9", "B78X": "Boeing 787-10",
+            "E170": "Embraer E170", "E175": "Embraer E175", "E190": "Embraer E190",
+            "E195": "Embraer E195", "AT45": "ATR 42-600", "AT75": "ATR 72-600",
+        }
+
+        @st.cache_data(ttl=60)
+        def obtener_vuelo_live_completo(token):
             """
-            Descarga el snapshot de vuelos en curso de OpenSky.
-            Filtra los que tienen callsign (identificador de vuelo) y
-            los cruza con airportsdata para obtener ICAO de origen/destino.
-            Devuelve una lista de dicts listos para mostrar.
+            Estrategia de 2 pasos:
+            1. Obtiene snapshot de estados (posición actual de todos los aviones).
+            2. Para el avión elegido, llama a /flights/aircraft para obtener
+               estDepartureAirport y estArrivalAirport reales del vuelo en curso.
+            Retorna un dict con toda la info necesaria.
             """
+            import time as _time
+
+            # ── PASO 1: snapshot de estados ──────────────────────────────────
             try:
-                r = requests.get(
+                r_states = requests.get(
                     "https://opensky-network.org/api/states/all",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=15,
                 )
-                if r.status_code != 200:
-                    return None, f"OpenSky error {r.status_code}"
-
-                estados = r.json().get("states", []) or []
-
-                # Campos de cada estado:
-                # 0=icao24, 1=callsign, 2=origin_country, 5=lon, 6=lat,
-                # 7=baro_alt(m), 9=velocity(m/s), 10=heading, 13=on_ground
-                vuelos = []
-                for s in estados:
-                    callsign = (s[1] or "").strip()
-                    on_ground = s[13]
-                    lat = s[6]
-                    lon = s[5]
-                    alt_m = s[7] or 0
-                    vel_ms = s[9] or 0
-                    pais = s[2] or ""
-
-                    # Solo vuelos en aire con callsign y altitud razonable
-                    if not callsign or on_ground or alt_m < 1000 or lat is None:
-                        continue
-
-                    vuelos.append({
-                        "callsign": callsign,
-                        "icao24": s[0],
-                        "pais": pais,
-                        "lat": lat,
-                        "lon": lon,
-                        "alt_ft": round(alt_m * 3.28084),
-                        "vel_kt": round(vel_ms * 1.94384),
-                        "heading": round(s[10] or 0),
-                    })
-
-                return vuelos, None
+                if r_states.status_code != 200:
+                    return None, f"OpenSky estados error {r_states.status_code}"
+                estados = r_states.json().get("states", []) or []
             except Exception as e:
                 return None, str(e)
 
-        def icao_mas_cercano(lat, lon, heading, db, max_dist_nm=600):
-            """
-            Dada la posición y rumbo de un avión, busca el aeropuerto
-            más probable de destino proyectando la trayectoria hacia adelante.
-            También retorna el origen como el aeropuerto más cercano hacia atrás.
-            """
-            mejor_dest = None
-            mejor_orig = None
-            min_dist_dest = float('inf')
-            min_dist_orig = float('inf')
-
-            # Proyectar ~300 NM hacia adelante en la dirección del rumbo
-            import math as _math
-            head_rad = _math.radians(heading)
-            proj_dist_nm = 300
-            proj_dist_deg = proj_dist_nm / 60
-            lat_proj = lat + proj_dist_deg * _math.cos(head_rad)
-            lon_proj = lon + proj_dist_deg * _math.sin(head_rad)
-
-            for icao, apt in db.items():
-                apt_lat = apt.get('lat')
-                apt_lon = apt.get('lon')
-                if apt_lat is None or apt_lon is None:
+            # Filtrar: en vuelo, con callsign comercial (≥5 chars), altitud >5000ft
+            candidatos = []
+            for s in estados:
+                callsign = (s[1] or "").strip()
+                on_ground = s[13]
+                lat, lon = s[6], s[5]
+                alt_m = s[7] or 0
+                vel_ms = s[9] or 0
+                if (not callsign or on_ground or alt_m < 1500
+                        or lat is None or len(callsign) < 5):
                     continue
-                # Distancia al punto proyectado (destino)
-                d_dest = haversine_nm(lat_proj, lon_proj, apt_lat, apt_lon)
-                if d_dest < min_dist_dest and d_dest < max_dist_nm:
-                    min_dist_dest = d_dest
-                    mejor_dest = icao
-                # Distancia hacia atrás (origen)
-                lat_back = lat - proj_dist_deg * _math.cos(head_rad)
-                lon_back = lon - proj_dist_deg * _math.sin(head_rad)
-                d_orig = haversine_nm(lat_back, lon_back, apt_lat, apt_lon)
-                if d_orig < min_dist_orig and d_orig < max_dist_nm:
-                    min_dist_orig = d_orig
-                    mejor_orig = icao
+                candidatos.append({
+                    "callsign": callsign,
+                    "icao24": s[0],
+                    "pais": s[2] or "",
+                    "lat": lat, "lon": lon,
+                    "alt_ft": round(alt_m * 3.28084),
+                    "vel_kt": round(vel_ms * 1.94384),
+                    "heading": round(s[10] or 0),
+                    "squawk": s[14] or "",
+                })
 
-            return mejor_orig, mejor_dest
+            if not candidatos:
+                return None, "No se encontraron vuelos comerciales en curso."
+
+            # Mezclar para variar; intentar hasta 8 candidatos hasta encontrar
+            # uno con datos de ruta completos
+            random.shuffle(candidatos)
+            ahora = int(_time.time())
+
+            for elegido in candidatos[:8]:
+                icao24 = elegido["icao24"]
+                # ── PASO 2: historial del vuelo (últimas 2h) ──────────────────
+                try:
+                    begin = ahora - 7200  # 2 horas atrás
+                    r_fl = requests.get(
+                        "https://opensky-network.org/api/flights/aircraft",
+                        params={"icao24": icao24, "begin": begin, "end": ahora},
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=10,
+                    )
+                    if r_fl.status_code != 200:
+                        continue
+                    vuelos_hist = r_fl.json() or []
+                    if not vuelos_hist:
+                        continue
+                    # El vuelo más reciente es el último
+                    info_vuelo = vuelos_hist[-1]
+                    orig = (info_vuelo.get("estDepartureAirport") or "").strip().upper()
+                    dest = (info_vuelo.get("estArrivalAirport") or "").strip().upper()
+                    callsign_real = (info_vuelo.get("callsign") or elegido["callsign"]).strip()
+                    tipo_icao = (info_vuelo.get("aircraftType") or "").upper()[:4]
+
+                    # Necesitamos al menos el origen para que valga la pena
+                    if not orig:
+                        continue
+
+                    elegido["callsign"] = callsign_real
+                    elegido["origen_icao"] = orig
+                    elegido["destino_icao"] = dest if dest else "????"
+                    elegido["tipo_icao"] = tipo_icao
+                    elegido["modelo"] = ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or "Desconocido")
+                    return elegido, None
+
+                except Exception:
+                    continue
+
+            # Si ninguno tuvo datos de ruta, devolver el primero con origen/destino vacíos
+            elegido = candidatos[0]
+            elegido["origen_icao"] = "????"
+            elegido["destino_icao"] = "????"
+            elegido["tipo_icao"] = ""
+            elegido["modelo"] = "Desconocido"
+            return elegido, "⚠️ No se encontró ruta para este vuelo — origen/destino estimados."
 
         # ------------------------------------------------------------------
         # UI principal
         # ------------------------------------------------------------------
         st.header("🎲 Vuelos Reales para el Simulador")
 
-        # Detectar si hay credenciales en st.secrets
+        # Detectar credenciales
         tiene_opensky = (
             "opensky" in st.secrets
             and st.secrets["opensky"].get("client_id")
@@ -1012,134 +1035,179 @@ def main_app():
         else:
             modo_fuente = "📚 Base curada"
             st.info(
-                "💡 **Tip:** Para ver vuelos 100% en vivo de todo el mundo, "
-                "agregá tus credenciales de [OpenSky](https://opensky-network.org) "
-                "en los **Secrets** de Streamlit:\n"
-                "```toml\n[opensky]\nclient_id = \"tu_id\"\nclient_secret = \"tu_secret\"\n```\n"
-                "El registro es gratuito en opensky-network.org."
+                "💡 **Tip:** Para vuelos 100% reales en vivo, agregá tus credenciales gratuitas "
+                "de [OpenSky Network](https://opensky-network.org) en los **Secrets** de Streamlit:\n"
+                "```toml\n[opensky]\nclient_id = \"tu_client_id\"\nclient_secret = \"tu_secret\"\n```"
             )
 
-        # ---- MODO EN VIVO ----
-        if modo_fuente == "🛰️ En vivo (OpenSky Network)":
-            col_v1, col_v2 = st.columns([3, 1])
-            with col_v2:
-                st.write("")
-                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
+        # ──────────────────────────────────────────────────────────────────
+        # HELPER UI: tarjeta de vuelo (compartida entre modo live y curado)
+        # ──────────────────────────────────────────────────────────────────
+        def mostrar_tarjeta_vuelo(orig_icao, dest_icao, callsign, modelo,
+                                  duracion=None, aerolinea=None, num_vuelo=None,
+                                  alt_ft=None, vel_kt=None, heading=None,
+                                  lat_actual=None, lon_actual=None, es_live=False):
 
+            apt_o = AIRPORTS_DB.get(orig_icao, {})
+            apt_d = AIRPORTS_DB.get(dest_icao, {})
+            ciudad_o = f"{apt_o.get('city','')}, {apt_o.get('country','')}" if apt_o else "—"
+            ciudad_d = f"{apt_d.get('city','')}, {apt_d.get('country','')}" if apt_d else "—"
+            nombre_o = apt_o.get('name', orig_icao)
+            nombre_d = apt_d.get('name', dest_icao)
+            elev_o = apt_o.get('elevation', 0)
+            elev_d = apt_d.get('elevation', 0)
+
+            c_orig = obtener_coords(orig_icao)
+            c_dest = obtener_coords(dest_icao)
+            dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1])) if (c_orig and c_dest) else None
+            dist_km = round(dist_nm * 1.852) if dist_nm else None
+
+            # Tiempo estimado si no se provee (a ~480kt crucero)
+            if not duracion and dist_nm:
+                horas_est = dist_nm / 480
+                h = int(horas_est)
+                m = int((horas_est - h) * 60)
+                duracion = f"~{h}h {m:02d}m"
+
+            live_badge = '<span style="background:#e74c3c;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:1px;">● LIVE</span>' if es_live else ''
+            aero_str = f"<span style='color:#aaa;font-size:14px;'>{aerolinea}</span>" if aerolinea else ""
+            num_str = f"<code style='background:#222;padding:2px 8px;border-radius:4px;font-size:15px;'>{num_vuelo or callsign}</code>"
+
+            st.markdown(f"""
+<div style="background:linear-gradient(135deg,#0f1923 0%,#1a2535 100%);
+            border:1px solid #2a3a4a;border-radius:14px;padding:24px 28px;margin-bottom:16px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;">
+    {num_str} {aero_str} {live_badge}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 48px 1fr;align-items:center;gap:8px;margin-bottom:20px;">
+    <div>
+      <div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">{orig_icao}</div>
+      <div style="font-size:13px;color:#7ec8e3;font-weight:600;">{nombre_o}</div>
+      <div style="font-size:12px;color:#888;">{ciudad_o}</div>
+      <div style="font-size:11px;color:#555;">⛰ {elev_o} ft</div>
+    </div>
+    <div style="text-align:center;font-size:22px;color:#39ff14;">✈</div>
+    <div style="text-align:right;">
+      <div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">{dest_icao}</div>
+      <div style="font-size:13px;color:#7ec8e3;font-weight:600;">{nombre_d}</div>
+      <div style="font-size:12px;color:#888;">{ciudad_d}</div>
+      <div style="font-size:11px;color:#555;">⛰ {elev_d} ft</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;">
+    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Avión</div>
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{modelo}</div>
+    </div>
+    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Distancia</div>
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{f'{dist_nm:,} NM' if dist_nm else '—'}</div>
+    </div>
+    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Duración est.</div>
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{duracion or '—'}</div>
+    </div>
+    {f'''<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Altitud</div>
+      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{alt_ft:,} ft</div>
+    </div>
+    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Velocidad</div>
+      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{vel_kt} kt</div>
+    </div>
+    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
+      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Rumbo</div>
+      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{heading}°</div>
+    </div>''' if es_live and alt_ft else ''}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # Mapa
+            if c_orig and c_dest:
+                centro = [v["lat"], v["lon"]] if (es_live and lat_actual) else [(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2]
+                zoom = 4 if es_live else 3
+                m = folium.Map(location=centro, zoom_start=zoom, tiles="CartoDB dark_matter")
+                ruta = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
+                folium.PolyLine(ruta, color="#39ff14", weight=2,
+                                opacity=0.6 if es_live else 0.85,
+                                dash_array="6" if es_live else None).add_to(m)
+                folium.Marker(c_orig, tooltip=f"🛫 {orig_icao}",
+                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m)
+                folium.Marker(c_dest, tooltip=f"🛬 {dest_icao}",
+                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m)
+                if es_live and lat_actual:
+                    folium.Marker(
+                        [lat_actual, lon_actual],
+                        tooltip=f"✈️ {callsign} — posición actual",
+                        icon=folium.Icon(color="blue", icon="plane", prefix="fa"),
+                        popup=f"{alt_ft:,} ft | {vel_kt} kt | {heading}°"
+                    ).add_to(m)
+                st_folium(m, width=900, height=400)
+                if dist_nm:
+                    st.caption(f"📏 Gran círculo: **{dist_nm:,} NM** ({dist_km:,} km)")
+
+            return dist_nm  # para usar en el botón de registro
+
+        # ── MODO EN VIVO ──────────────────────────────────────────────────
+        if modo_fuente == "🛰️ En vivo (OpenSky Network)":
+            col_btn, col_hint = st.columns([1, 3])
+            with col_btn:
+                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
+            with col_hint:
+                st.caption("Conecta con OpenSky Network y elige un vuelo comercial real en curso ahora mismo.")
+
+            aviso_ruta = None
             if generar_live or "vuelo_live" not in st.session_state:
-                with st.spinner("Conectando con OpenSky Network…"):
+                with st.spinner("Conectando con OpenSky…"):
                     token, err_tok = obtener_token_opensky(
                         st.secrets["opensky"]["client_id"],
                         st.secrets["opensky"]["client_secret"],
                     )
                 if not token:
-                    st.error(f"No se pudo autenticar con OpenSky: {err_tok}")
+                    st.error(f"No se pudo autenticar: {err_tok}")
                     st.stop()
-
-                with st.spinner("Descargando tráfico aéreo en vivo…"):
-                    vuelos_live, err_live = obtener_vuelos_opensky(token)
-
-                if not vuelos_live:
-                    st.error(f"No se pudieron obtener vuelos: {err_live}")
+                with st.spinner("Buscando vuelo con ruta completa…"):
+                    v_live, aviso_ruta = obtener_vuelo_live_completo(token)
+                if not v_live:
+                    st.error(aviso_ruta)
                     st.stop()
-
-                # Elegir uno aleatorio que tenga callsign comercial (≥5 chars)
-                candidatos = [v for v in vuelos_live if len(v["callsign"]) >= 5]
-                if not candidatos:
-                    candidatos = vuelos_live
-                elegido = random.choice(candidatos)
-
-                # Inferir origen/destino por posición y rumbo
-                orig_icao, dest_icao = icao_mas_cercano(
-                    elegido["lat"], elegido["lon"], elegido["heading"], AIRPORTS_DB
-                )
-                elegido["origen_icao"] = orig_icao or "????"
-                elegido["destino_icao"] = dest_icao or "????"
-                st.session_state["vuelo_live"] = elegido
+                st.session_state["vuelo_live"] = v_live
+                st.session_state["aviso_live"] = aviso_ruta
 
             v = st.session_state["vuelo_live"]
-            orig_icao = v["origen_icao"]
-            dest_icao = v["destino_icao"]
-            apt_orig = AIRPORTS_DB.get(orig_icao, {})
-            apt_dest = AIRPORTS_DB.get(dest_icao, {})
+            aviso_ruta = st.session_state.get("aviso_live")
+            if aviso_ruta:
+                st.warning(aviso_ruta)
+
+            dist = mostrar_tarjeta_vuelo(
+                orig_icao=v["origen_icao"],
+                dest_icao=v["destino_icao"],
+                callsign=v["callsign"],
+                modelo=v.get("modelo","Desconocido"),
+                alt_ft=v["alt_ft"],
+                vel_kt=v["vel_kt"],
+                heading=v["heading"],
+                lat_actual=v["lat"],
+                lon_actual=v["lon"],
+                es_live=True,
+            )
 
             st.divider()
-            # Tarjeta principal
-            c1h, c2h = st.columns([3, 2])
-            with c1h:
-                st.markdown(f"## ✈️ `{v['callsign']}`")
-                st.markdown(
-                    f"**{apt_orig.get('name', orig_icao)}** `{orig_icao}` → "
-                    f"**{apt_dest.get('name', dest_icao)}** `{dest_icao}`"
-                )
-                st.caption(f"🌍 País de origen del avión: **{v['pais']}** — ICAO24: `{v['icao24']}`")
-            with c2h:
-                st.metric("✈️ Altitud actual", f"{v['alt_ft']:,} ft")
-                st.metric("💨 Velocidad", f"{v['vel_kt']} kt")
-                st.metric("🧭 Rumbo", f"{v['heading']}°")
-
-            # Info aeropuertos
-            st.divider()
-            col_ap1, col_ap2 = st.columns(2)
-            for col, icao_code, label in [(col_ap1, orig_icao, "🛫 Origen estimado"), (col_ap2, dest_icao, "🛬 Destino estimado")]:
-                apt = AIRPORTS_DB.get(icao_code, {})
-                with col:
-                    st.markdown(f"**{label} — {icao_code}**")
-                    if apt:
-                        st.markdown(f"**{apt.get('name','—')}**")
-                        st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
-                        st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
-
-            # Mapa con posición actual + ruta estimada
-            c_pos = [v["lat"], v["lon"]]
-            c_orig_c = obtener_coords(orig_icao)
-            c_dest_c = obtener_coords(dest_icao)
-
-            st.divider()
-            st.markdown("**🗺️ Posición actual y ruta estimada**")
-            m_live = folium.Map(location=c_pos, zoom_start=4, tiles="CartoDB dark_matter")
-
-            # Posición actual del avión
-            folium.Marker(
-                c_pos,
-                tooltip=f"✈️ {v['callsign']} — ahora mismo",
-                icon=folium.Icon(color="blue", icon="plane", prefix="fa"),
-                popup=f"Alt: {v['alt_ft']:,} ft | {v['vel_kt']} kt | {v['heading']}°"
-            ).add_to(m_live)
-
-            if c_orig_c and c_dest_c:
-                ruta = get_geodesic_path(c_orig_c[0], c_orig_c[1], c_dest_c[0], c_dest_c[1])
-                folium.PolyLine(ruta, color="#39ff14", weight=2, opacity=0.5,
-                                dash_array="8", tooltip="Ruta gran círculo estimada").add_to(m_live)
-                folium.Marker(c_orig_c, tooltip=orig_icao,
-                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_live)
-                folium.Marker(c_dest_c, tooltip=dest_icao,
-                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_live)
-                dist_nm = round(haversine_nm(c_orig_c[0], c_orig_c[1], c_dest_c[0], c_dest_c[1]))
-                st_folium(m_live, width=900, height=400)
-                st.caption(
-                    f"📏 Distancia total estimada: **{dist_nm} NM** — "
-                    f"Posición actual: {v['lat']:.3f}°, {v['lon']:.3f}°"
-                )
-                st.caption("⚠️ Origen y destino son estimados por posición y rumbo. OpenSky no expone números de vuelo comerciales en el tier gratuito.")
-            else:
-                st_folium(m_live, width=900, height=400)
-
-            # Cargar en registro
-            st.divider()
-            if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+            if st.button("📋 Cargar en el Registro", use_container_width=True):
+                horas_est = (dist / 480) if dist else 0.0
                 st.session_state.form_data = {
-                    "origen": orig_icao,
-                    "destino": dest_icao,
+                    "origen": v["origen_icao"],
+                    "destino": v["destino_icao"],
                     "ruta": "",
                     "no_vuelo": v["callsign"],
-                    "tiempo": 0.0,
+                    "tiempo": round(horas_est, 1),
                     "puerta_salida": "",
                     "puerta_llegada": "",
                 }
-                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo' para completarlo.")
+                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo'.")
 
-        # ---- MODO BASE CURADA ----
+        # ── MODO BASE CURADA ──────────────────────────────────────────────
         else:
             VUELOS_CURADOS = [
                 # Largo radio
@@ -1211,61 +1279,28 @@ def main_app():
             if not v:
                 st.stop()
 
-            st.divider()
-            c_card1, c_card2 = st.columns([3, 2])
-            with c_card1:
-                apt_o = AIRPORTS_DB.get(v["origen"], {})
-                apt_d = AIRPORTS_DB.get(v["destino"], {})
-                st.markdown(
-                    f"## 🛫 {apt_o.get('name', v['origen'])} → "
-                    f"🛬 {apt_d.get('name', v['destino'])}"
-                )
-                st.markdown(
-                    f"**{v['aerolinea']}** — Vuelo `{v['num']}` — "
-                    f"_{v['categoria']}_"
-                )
-            with c_card2:
-                st.metric("✈️ Avión", v["avion"])
-                st.metric("⏱️ Duración", v["duracion"])
-
-            st.divider()
-            col_ap1, col_ap2 = st.columns(2)
-            for col, icao_code, label in [(col_ap1, v["origen"], "🛫 Origen"), (col_ap2, v["destino"], "🛬 Destino")]:
-                apt = AIRPORTS_DB.get(icao_code, {})
-                with col:
-                    st.markdown(f"**{label} — {icao_code}**")
-                    if apt:
-                        st.markdown(f"**{apt.get('name','—')}**")
-                        st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
-                        st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
-
-            c_orig = obtener_coords(v["origen"])
-            c_dest = obtener_coords(v["destino"])
-            if c_orig and c_dest:
-                st.divider()
-                st.markdown("**🗺️ Ruta del vuelo**")
-                m_r = folium.Map(
-                    location=[(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2],
-                    zoom_start=3, tiles="CartoDB dark_matter"
-                )
-                ruta_curva = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
-                folium.PolyLine(ruta_curva, color="#39ff14", weight=3, opacity=0.8).add_to(m_r)
-                folium.Marker(c_orig, tooltip=v["origen"],
-                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_r)
-                folium.Marker(c_dest, tooltip=v["destino"],
-                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_r)
-                dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1]))
-                st_folium(m_r, width=900, height=380)
-                st.caption(f"📏 Distancia gran círculo: **{dist_nm} NM** ({round(dist_nm*1.852)} km)")
+            mostrar_tarjeta_vuelo(
+                orig_icao=v["origen"],
+                dest_icao=v["destino"],
+                callsign=v["num"],
+                modelo=v["avion"],
+                duracion=v["duracion"],
+                aerolinea=v["aerolinea"],
+                num_vuelo=v["num"],
+                es_live=False,
+            )
 
             st.divider()
             if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+                c_o = obtener_coords(v["origen"])
+                c_d = obtener_coords(v["destino"])
+                dist_h = round(haversine_nm(c_o[0],c_o[1],c_d[0],c_d[1])/480, 1) if (c_o and c_d) else 0.0
                 st.session_state.form_data = {
                     "origen": v["origen"],
                     "destino": v["destino"],
                     "ruta": "",
                     "no_vuelo": v["num"],
-                    "tiempo": 0.0,
+                    "tiempo": dist_h,
                     "puerta_salida": "",
                     "puerta_llegada": "",
                 }
