@@ -902,13 +902,27 @@ def main_app():
             un vuelo real en curso con origen, destino, avión y aerolínea.
             Retorna (dict, error_str).
             """
-            try:
-                from FlightRadar24 import FlightRadar24API
-            except ImportError:
-                return None, "Instalá `FlightRadarAPI` en requirements.txt"
+            # Intentar ambas variantes de import (el nombre del módulo cambió entre versiones)
+            fr = None
+            import_err = None
+            for mod, cls in [("FlightRadar24", "FlightRadar24API"), ("flightradar24", "FlightRadar24API")]:
+                try:
+                    import importlib
+                    m = importlib.import_module(mod)
+                    fr = getattr(m, cls)()
+                    break
+                except Exception as e:
+                    import_err = str(e)
+                    continue
+
+            if fr is None:
+                return None, (
+                    f"No se pudo importar FlightRadarAPI ({import_err}). "
+                    "Asegurate de tener `FlightRadarAPI` en requirements.txt "
+                    "y que Streamlit Cloud lo haya reinstalado (reiniciá el app)."
+                )
 
             try:
-                fr = FlightRadar24API()
                 vuelos = fr.get_flights()
                 if not vuelos:
                     return None, "No se obtuvieron vuelos."
