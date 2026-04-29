@@ -902,109 +902,181 @@ def main_app():
             un vuelo real en curso con origen, destino, avión y aerolínea.
             Retorna (dict, error_str).
             """
-            # Intentar ambas variantes de import (el nombre del módulo cambió entre versiones)
-            fr = None
-            import_err = None
-            for mod, cls in [("FlightRadar24", "FlightRadar24API"), ("flightradar24", "FlightRadar24API")]:
-                try:
-                    import importlib
-                    m = importlib.import_module(mod)
-                    fr = getattr(m, cls)()
-                    break
-                except Exception as e:
-                    import_err = str(e)
-                    continue
+            Accede directamente a la API interna de Flightradar24 con requests.
+            Sin dependencias externas - solo usa el requests que ya esta instalado.
+            Retorna (dict, error_str).
+            """
+            import json as _json
 
-            if fr is None:
-                return None, (
-                    f"No se pudo importar FlightRadarAPI ({import_err}). "
-                    "Asegurate de tener `FlightRadarAPI` en requirements.txt "
-                    "y que Streamlit Cloud lo haya reinstalado (reiniciá el app)."
-                )
+            HEADERS = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://www.flightradar24.com",
+                "Referer": "https://www.flightradar24.com/",
+            }
+
+            DB_IATA = airportsdata.load('IATA')
+
+            def iata_to_icao(iata):
+                return DB_IATA.get(iata, {}).get('icao', iata) if iata else '????'
 
             try:
-                vuelos = fr.get_flights()
-                if not vuelos:
-                    return None, "No se obtuvieron vuelos."
-
-                # Filtrar: en vuelo, con origen Y destino conocidos
-                candidatos = [
-                    v for v in vuelos
-                    if getattr(v, 'origin_airport_iata', None)
-                    and getattr(v, 'destination_airport_iata', None)
-                    and getattr(v, 'altitude', 0) > 5000
-                    and not getattr(v, 'on_ground', True)
+                # Paso 1: obtener zona aleatoria del mundo para variedad
+                zonas = [
+                    # Europa
+                    {"bounds": "72,35,-15,40"},
+                    # Norteamérica
+                    {"bounds": "60,25,-130,-60"},
+                    # Asia-Pacífico
+                    {"bounds": "55,-10,80,150"},
+                    # Latinoamérica
+                    {"bounds": "15,-60,-80,-30"},
+                    # Oriente Medio / África
+                    {"bounds": "40,-40,20,60"},
                 ]
+                zona = random.choice(zonas)
+
+                r = requests.get(
+                    "https://data-live.flightradar24.com/zones/fcgi/feed.js",
+                    params={
+                        "faa": "1", "satellite": "1", "mlat": "1", "flarm": "1",
+                        "adsb": "1", "gnd": "0", "air": "1", "vehicles": "0",
+                        "estimated": "0", "maxage": "14400", "gliders": "0",
+                        "stats": "0", "enc": "5uUUUUUU",
+                        **zona,
+                    },
+                    headers=HEADERS,
+                    timeout=12,
+                )
+
+                if r.status_code != 200:
+                    return None, f"FR24 feed error {r.status_code}"
+
+                data = r.json()
+
+                # Filtrar entradas de vuelo válidas (listas con ≥13 elementos)
+                # Formato: {fr24_id: [icao24, lat, lon, heading, alt_ft, vel_kt,
+                #           callsign, on_ground, ?, registration, ?, icao_type,
+                #           airline_iata, orig_iata, dest_iata, ?, ...]}
+                candidatos = []
+                for fid, v in data.items():
+                    if not isinstance(v, list) or len(v) < 14:
+                        continue
+                    orig_iata = (v[11] or "").strip()
+                    dest_iata = (v[12] or "").strip()
+                    callsign  = (v[16] or "").strip() if len(v) > 16 else ""
+                    alt_ft    = int(v[4]) if v[4] else 0
+                    on_ground = int(v[14]) if v[14] != "" else 1
+
+                    if not orig_iata or not dest_iata or alt_ft < 5000 or on_ground:
+                        continue
+                    candidatos.append({
+                        "fr24_id":    fid,
+                        "icao24":     v[0],
+                        "lat":        float(v[1]),
+                        "lon":        float(v[2]),
+                        "heading":    int(v[3]),
+                        "alt_ft":     alt_ft,
+                        "vel_kt":     int(v[5]) if v[5] else 0,
+                        "callsign":   callsign or v[0],
+                        "registro":   (v[9] or "").strip(),
+                        "tipo_icao":  (v[8] or "").strip().upper(),
+                        "orig_iata":  orig_iata,
+                        "dest_iata":  dest_iata,
+                    })
 
                 if not candidatos:
-                    return None, "No se encontraron vuelos con ruta completa ahora mismo."
+                    return None, "No se encontraron vuelos con ruta completa en esta zona. Intentá de nuevo."
 
                 random.shuffle(candidatos)
 
-                # Intentar hasta 6 hasta obtener datos de detalle completos
-                for vuelo_base in candidatos[:6]:
+                # Paso 2: obtener detalle del primer candidato válido
+                for c in candidatos[:5]:
                     try:
-                        det = fr.get_flight_details(vuelo_base)
-                        vuelo_base.set_flight_details(det)
+                        r2 = requests.get(
+                            f"https://data-live.flightradar24.com/clickhandler/?version=1.5&flight={c['fr24_id']}",
+                            headers=HEADERS,
+                            timeout=8,
+                        )
+                        if r2.status_code != 200:
+                            continue
+                        det = r2.json()
 
-                        orig_iata  = getattr(vuelo_base, 'origin_airport_iata',  '') or ''
-                        dest_iata  = getattr(vuelo_base, 'destination_airport_iata', '') or ''
-                        callsign   = (getattr(vuelo_base, 'callsign', '') or '').strip()
-                        aerolinea  = getattr(vuelo_base, 'airline_short_name', '') or \
-                                     getattr(vuelo_base, 'airline_name', '') or ''
-                        tipo_icao  = (getattr(vuelo_base, 'aircraft_code', '') or '').strip().upper()
-                        registro   = getattr(vuelo_base, 'registration', '') or ''
-                        alt_ft     = int(getattr(vuelo_base, 'altitude', 0))
-                        vel_kt     = int(getattr(vuelo_base, 'ground_speed', 0))
-                        heading    = int(getattr(vuelo_base, 'heading', 0))
-                        lat        = float(getattr(vuelo_base, 'latitude', 0))
-                        lon        = float(getattr(vuelo_base, 'longitude', 0))
+                        airline_info = det.get("airline", {}) or {}
+                        aerolinea = airline_info.get("short", "") or airline_info.get("name", "") or ""
 
-                        # Convertir IATA → ICAO usando airportsdata
-                        # airportsdata también tiene índice IATA
-                        DB_IATA = airportsdata.load('IATA')
-                        orig_icao = DB_IATA.get(orig_iata, {}).get('icao', orig_iata) if orig_iata else '????'
-                        dest_icao = DB_IATA.get(dest_iata, {}).get('icao', dest_iata) if dest_iata else '????'
+                        aircraft_info = det.get("aircraft", {}) or {}
+                        tipo_icao = (aircraft_info.get("model", {}) or {}).get("code", c["tipo_icao"]) or c["tipo_icao"]
+                        tipo_icao = tipo_icao.upper()
 
-                        modelo = ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or 'Desconocido')
+                        airport_info = det.get("airport", {}) or {}
+                        orig_data = (airport_info.get("origin", {}) or {})
+                        dest_data = (airport_info.get("destination", {}) or {})
+
+                        # Preferir ICAO directo si está disponible en el detalle
+                        orig_iata = (orig_data.get("code", {}) or {}).get("iata", c["orig_iata"]) or c["orig_iata"]
+                        dest_iata = (dest_data.get("code", {}) or {}).get("iata", c["dest_iata"]) or c["dest_iata"]
+                        orig_icao_det = (orig_data.get("code", {}) or {}).get("icao", "") or iata_to_icao(orig_iata)
+                        dest_icao_det = (dest_data.get("code", {}) or {}).get("icao", "") or iata_to_icao(dest_iata)
 
                         # ETA
-                        eta_ts = getattr(vuelo_base, 'time_details', {})
+                        time_info = det.get("time", {}) or {}
                         eta_str = None
-                        if isinstance(eta_ts, dict):
-                            eta_real = eta_ts.get('estimated', {}).get('arrival')
-                            if eta_real:
-                                from datetime import datetime as _dt
-                                try:
-                                    eta_str = _dt.utcfromtimestamp(eta_real).strftime('%H:%M UTC')
-                                except Exception:
-                                    pass
+                        eta_ts = (time_info.get("estimated", {}) or {}).get("arrival")
+                        if eta_ts:
+                            from datetime import datetime as _dt
+                            try:
+                                eta_str = _dt.utcfromtimestamp(eta_ts).strftime('%H:%M UTC')
+                            except Exception:
+                                pass
+
+                        callsign = det.get("identification", {}).get("callsign", "") or c["callsign"]
+                        registro = (aircraft_info.get("registration", "") or c["registro"]).strip()
 
                         return {
                             "callsign":    callsign or "N/A",
                             "aerolinea":   aerolinea,
-                            "origen_icao": orig_icao,
-                            "destino_icao":dest_icao,
+                            "origen_icao": orig_icao_det or orig_iata,
+                            "destino_icao":dest_icao_det or dest_iata,
                             "origen_iata": orig_iata,
                             "destino_iata":dest_iata,
                             "tipo_icao":   tipo_icao,
-                            "modelo":      modelo,
+                            "modelo":      ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or "Desconocido"),
                             "registro":    registro,
-                            "alt_ft":      alt_ft,
-                            "vel_kt":      vel_kt,
-                            "heading":     heading,
-                            "lat":         lat,
-                            "lon":         lon,
+                            "alt_ft":      c["alt_ft"],
+                            "vel_kt":      c["vel_kt"],
+                            "heading":     c["heading"],
+                            "lat":         c["lat"],
+                            "lon":         c["lon"],
                             "eta":         eta_str,
                         }, None
 
                     except Exception:
                         continue
 
-                return None, "No se pudo obtener detalle de ningún vuelo. Intentá de nuevo."
+                # Fallback: usar datos del feed sin detalle
+                c = candidatos[0]
+                return {
+                    "callsign":    c["callsign"],
+                    "aerolinea":   "",
+                    "origen_icao": iata_to_icao(c["orig_iata"]),
+                    "destino_icao":iata_to_icao(c["dest_iata"]),
+                    "origen_iata": c["orig_iata"],
+                    "destino_iata":c["dest_iata"],
+                    "tipo_icao":   c["tipo_icao"],
+                    "modelo":      ICAO_TYPE_MODELS.get(c["tipo_icao"], c["tipo_icao"] or "Desconocido"),
+                    "registro":    c["registro"],
+                    "alt_ft":      c["alt_ft"],
+                    "vel_kt":      c["vel_kt"],
+                    "heading":     c["heading"],
+                    "lat":         c["lat"],
+                    "lon":         c["lon"],
+                    "eta":         None,
+                }, None
 
             except Exception as e:
-                return None, f"Error con FlightRadarAPI: {e}"
+                return None, f"Error conectando con Flightradar24: {e}"
 
         # ------------------------------------------------------------------
         # UI principal
@@ -1100,59 +1172,65 @@ def main_app():
                 m = int((horas_est - h) * 60)
                 duracion = f"~{h}h {m:02d}m"
 
-            live_badge = '<span style="background:#e74c3c;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:1px;">● LIVE</span>' if es_live else ''
-            aero_str = f"<span style='color:#aaa;font-size:14px;'>{aerolinea}</span>" if aerolinea else ""
-            num_str = f"<code style='background:#222;padding:2px 8px;border-radius:4px;font-size:15px;'>{num_vuelo or callsign}</code>"
+            live_badge = '<span style="background:#e74c3c;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:1px;">LIVE</span>' if es_live else ''
+            aero_str = '<span style="color:#aaa;font-size:14px;">' + str(aerolinea) + '</span>' if aerolinea else ""
+            num_str  = '<code style="background:#222;padding:2px 8px;border-radius:4px;font-size:15px;">' + str(num_vuelo or callsign) + '</code>'
+            dist_str = (str(dist_nm) + ' NM') if dist_nm else '--'
+            dur_str  = str(duracion) if duracion else '--'
+            elev_o_str = str(elev_o) + ' ft'
+            elev_d_str = str(elev_d) + ' ft'
 
-            st.markdown(f"""
-<div style="background:linear-gradient(135deg,#0f1923 0%,#1a2535 100%);
-            border:1px solid #2a3a4a;border-radius:14px;padding:24px 28px;margin-bottom:16px;">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;">
-    {num_str} {aero_str} {live_badge}
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 48px 1fr;align-items:center;gap:8px;margin-bottom:20px;">
-    <div>
-      <div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">{orig_icao}</div>
-      <div style="font-size:13px;color:#7ec8e3;font-weight:600;">{nombre_o}</div>
-      <div style="font-size:12px;color:#888;">{ciudad_o}</div>
-      <div style="font-size:11px;color:#555;">⛰ {elev_o} ft</div>
-    </div>
-    <div style="text-align:center;font-size:22px;color:#39ff14;">✈</div>
-    <div style="text-align:right;">
-      <div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">{dest_icao}</div>
-      <div style="font-size:13px;color:#7ec8e3;font-weight:600;">{nombre_d}</div>
-      <div style="font-size:12px;color:#888;">{ciudad_d}</div>
-      <div style="font-size:11px;color:#555;">⛰ {elev_d} ft</div>
-    </div>
-  </div>
-  <div style="display:flex;flex-wrap:wrap;gap:12px;">
-    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Avión</div>
-      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{modelo}</div>
-    </div>
-    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Distancia</div>
-      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{f'{dist_nm:,} NM' if dist_nm else '—'}</div>
-    </div>
-    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Duración est.</div>
-      <div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">{duracion or '—'}</div>
-    </div>
-    {f'''<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Altitud</div>
-      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{alt_ft:,} ft</div>
-    </div>
-    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Velocidad</div>
-      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{vel_kt} kt</div>
-    </div>
-    <div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">
-      <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Rumbo</div>
-      <div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">{heading}°</div>
-    </div>''' if es_live and alt_ft else ''}
-  </div>
-</div>
-""", unsafe_allow_html=True)
+            html_chips = (
+                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Avion</div>'
+                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + str(modelo) + '</div></div>'
+                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Distancia</div>'
+                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + dist_str + '</div></div>'
+                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Duracion est.</div>'
+                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + dur_str + '</div></div>'
+            )
+            if es_live and alt_ft:
+                html_chips += (
+                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Altitud</div>'
+                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + f'{alt_ft:,} ft' + '</div></div>'
+                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Velocidad</div>'
+                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + str(vel_kt) + ' kt</div></div>'
+                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
+                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Rumbo</div>'
+                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + str(heading) + '</div></div>'
+                )
+
+            html = (
+                '<div style="background:linear-gradient(135deg,#0f1923 0%,#1a2535 100%);'
+                'border:1px solid #2a3a4a;border-radius:14px;padding:24px 28px;margin-bottom:16px;">'
+                '<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;">'
+                + num_str + ' ' + aero_str + ' ' + live_badge +
+                '</div>'
+                '<div style="display:grid;grid-template-columns:1fr 48px 1fr;align-items:center;gap:8px;margin-bottom:20px;">'
+                '<div>'
+                '<div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">' + str(orig_icao) + '</div>'
+                '<div style="font-size:13px;color:#7ec8e3;font-weight:600;">' + str(nombre_o) + '</div>'
+                '<div style="font-size:12px;color:#888;">' + str(ciudad_o) + '</div>'
+                '<div style="font-size:11px;color:#555;">' + elev_o_str + '</div>'
+                '</div>'
+                '<div style="text-align:center;font-size:28px;color:#39ff14;">&#x2708;</div>'
+                '<div style="text-align:right;">'
+                '<div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">' + str(dest_icao) + '</div>'
+                '<div style="font-size:13px;color:#7ec8e3;font-weight:600;">' + str(nombre_d) + '</div>'
+                '<div style="font-size:12px;color:#888;">' + str(ciudad_d) + '</div>'
+                '<div style="font-size:11px;color:#555;">' + elev_d_str + '</div>'
+                '</div>'
+                '</div>'
+                '<div style="display:flex;flex-wrap:wrap;gap:12px;">'
+                + html_chips +
+                '</div>'
+                '</div>'
+            )
+            st.markdown(html, unsafe_allow_html=True)
 
             # Mapa
             if c_orig and c_dest:
@@ -1181,7 +1259,7 @@ def main_app():
             return dist_nm  # para usar en el botón de registro
 
         # ── MODO EN VIVO ──────────────────────────────────────────────────
-        if modo_fuente == "🛰️ En vivo (OpenSky Network)":
+        if modo_fuente == "🛰️ En vivo (Flightradar24)":
             col_btn, col_hint = st.columns([1, 3])
             with col_btn:
                 generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
