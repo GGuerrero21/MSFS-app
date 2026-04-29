@@ -891,7 +891,7 @@ def main_app():
                     data={
                         "grant_type": "client_credentials",
                         "client_id": halvard-api-client,
-                        "client_secret": OPENSKY_API_DEFAULT,
+                        "client_secret": 8osCrIRXw8mTMv1ZnecmJKwkkdEmlU1p,
                     },
                     timeout=8,
                 )
