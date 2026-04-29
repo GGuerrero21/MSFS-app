@@ -890,8 +890,8 @@ def main_app():
                     "/protocol/openid-connect/token",
                     data={
                         "grant_type": "client_credentials",
-                        "client_id": halvard-api-client,
-                        "client_secret": 8osCrIRXw8mTMv1ZnecmJKwkkdEmlU1p,
+                        "client_id": "halvard-api-client",
+                        "client_secret": "8osCrIRXw8mTMv1ZnecmJKwkkdEmlU1p",
                     },
                     timeout=8,
                 )
