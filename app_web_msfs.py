@@ -874,158 +874,403 @@ def main_app():
 """)
 
     # =========================================================
-    # 5. VUELOS ALEATORIOS
+    # 5. VUELOS ALEATORIOS (OpenSky Network)
     # =========================================================
     elif menu == "🎲 Vuelos Aleatorios":
         import random
-        st.header("🎲 Generador de Vuelos para el Simulador")
-        st.caption("Vuelos reales operados por aerolíneas reales. Cada vez que generás, sale uno diferente.")
 
-        # Base de vuelos reales por categoría
-        VUELOS_REALES = {
-            "✈️ Largo Radio (> 6h)": [
-                {"origen":"EGLL","destino":"KJFK","aerolinea":"British Airways","num":"BA112","avion":"Boeing 777-200","duracion":"7h 30m","info":"Londres → Nueva York. Uno de los vuelos transatlánticos más icónicos del mundo."},
-                {"origen":"OMDB","destino":"KLAX","aerolinea":"Emirates","num":"EK215","avion":"Airbus A380-800","duracion":"16h 15m","info":"Dubai → Los Ángeles. Uno de los vuelos más largos del mundo sin escala."},
-                {"origen":"YSSY","destino":"EGLL","aerolinea":"Qantas","num":"QF1","avion":"Boeing 787-9","duracion":"22h 00m","info":"Sídney → Londres vía Singapur. El famoso 'Canguro' de Qantas."},
-                {"origen":"KJFK","destino":"NZAA","aerolinea":"Air New Zealand","num":"NZ2","avion":"Boeing 787-9","duracion":"17h 40m","info":"Nueva York → Auckland. Un clásico del Pacífico Sur."},
-                {"origen":"LFPG","destino":"RJAA","aerolinea":"Air France","num":"AF276","avion":"Boeing 777-300ER","duracion":"12h 30m","info":"París → Tokio Narita. Ruta sobre Siberia."},
-                {"origen":"LEMD","destino":"SAEZ","aerolinea":"Aerolíneas Argentinas","num":"AR1140","avion":"Boeing 787-9","duracion":"13h 00m","info":"Madrid → Buenos Aires. La ruta más clásica de Latinoamérica a Europa."},
-                {"origen":"EGLL","destino":"OMDB","aerolinea":"Emirates","num":"EK3","avion":"Airbus A380-800","duracion":"7h 05m","info":"Londres → Dubai. Con el A380 más famoso del mundo."},
-                {"origen":"KLAX","destino":"RJAA","aerolinea":"Japan Airlines (JAL)","num":"JL62","avion":"Boeing 777-300ER","duracion":"11h 30m","info":"Los Ángeles → Tokio. Cruzando el Pacífico Norte."},
-                {"origen":"SBGR","destino":"LFPG","aerolinea":"Air France","num":"AF444","avion":"Boeing 777-300ER","duracion":"11h 20m","info":"São Paulo → París. El puente aéreo Brasil–Europa."},
-                {"origen":"FAOR","destino":"EGLL","aerolinea":"South African Airways","num":"SA234","avion":"Airbus A340-600","duracion":"11h 00m","info":"Johannesburgo → Londres. Clásica ruta sudafricana."},
-            ],
-            "🛫 Medio Radio (2–6h)": [
-                {"origen":"SCEL","destino":"SAEZ","aerolinea":"LATAM Airlines","num":"LA400","avion":"Airbus A320","duracion":"2h 15m","info":"Santiago → Buenos Aires. El puente aéreo más transitado de Sudamérica."},
-                {"origen":"LEMD","destino":"LFPG","aerolinea":"Iberia","num":"IB3166","avion":"Airbus A321","duracion":"2h 05m","info":"Madrid → París. Ruta corta intraeuropea muy popular."},
-                {"origen":"KJFK","destino":"KMIA","aerolinea":"American Airlines","num":"AA1","avion":"Boeing 737-800","duracion":"3h 10m","info":"Nueva York → Miami. Corredor doméstico icónico de EE.UU."},
-                {"origen":"EHAM","destino":"LEMD","aerolinea":"KLM","num":"KL1706","avion":"Boeing 737-800","duracion":"2h 40m","info":"Ámsterdam → Madrid. Ruta intraeuropea KLM clásica."},
-                {"origen":"MMMX","destino":"KJFK","aerolinea":"Aeroméxico","num":"AM002","avion":"Boeing 787-8","duracion":"4h 30m","info":"Ciudad de México → Nueva York. Principal enlace México–EE.UU."},
-                {"origen":"SKBO","destino":"MPTO","aerolinea":"Copa Airlines","num":"CM303","avion":"Boeing 737-800","duracion":"1h 40m","info":"Bogotá → Ciudad de Panamá. El hub de Copa en acción."},
-                {"origen":"FACT","destino":"FAOR","aerolinea":"South African Airways","num":"SA407","avion":"Airbus A319","duracion":"2h 10m","info":"Ciudad del Cabo → Johannesburgo. La ruta doméstica más importante de Sudáfrica."},
-                {"origen":"RJAA","destino":"RKSI","aerolinea":"All Nippon Airways (ANA)","num":"NH963","avion":"Boeing 767-300","duracion":"2h 25m","info":"Tokio → Seúl Incheon. Uno de los corredores asiáticos más concurridos."},
-                {"origen":"EGLL","destino":"LIRF","aerolinea":"British Airways","num":"BA548","avion":"Airbus A320 Neo","duracion":"2h 30m","info":"Londres → Roma Fiumicino. Turismo europeo clásico."},
-                {"origen":"SAEZ","destino":"SBGR","aerolinea":"LATAM Airlines Brasil","num":"LA8080","avion":"Airbus A320","duracion":"3h 00m","info":"Buenos Aires → São Paulo. El puente aéreo más largo de Sudamérica."},
-                {"origen":"SPJC","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA2037","avion":"Airbus A319","duracion":"3h 30m","info":"Lima → Santiago. Ruta andina clásica de la costa del Pacífico."},
-                {"origen":"OMDB","destino":"VABB","aerolinea":"flydubai","num":"FZ551","avion":"Boeing 737 MAX 8","duracion":"3h 15m","info":"Dubai → Mumbai. El puente entre el Golfo y la India."},
-            ],
-            "🛩️ Corto Radio (< 2h)": [
-                {"origen":"LEMD","destino":"LEBL","aerolinea":"Vueling","num":"VY1803","avion":"Airbus A320","duracion":"1h 10m","info":"Madrid → Barcelona. El puente aéreo más transitado de Europa."},
-                {"origen":"EGLL","destino":"EGPH","aerolinea":"British Airways","num":"BA1478","avion":"Airbus A319","duracion":"1h 20m","info":"Londres Heathrow → Edimburgo. Ruta doméstica UK muy frecuente."},
-                {"origen":"KJFK","destino":"KBOS","aerolinea":"JetBlue","num":"B61025","avion":"Airbus A320","duracion":"1h 10m","info":"Nueva York → Boston. Corredor noreste de EE.UU."},
-                {"origen":"SCEL","destino":"SCTE","aerolinea":"Sky Airline","num":"H2201","avion":"Airbus A320","duracion":"1h 30m","info":"Santiago → Temuco. Ruta doméstica chilena popular."},
-                {"origen":"EHAM","destino":"EGLL","aerolinea":"KLM","num":"KL1009","avion":"Embraer E190","duracion":"1h 05m","info":"Ámsterdam → Londres. La ruta que conecta dos de los aeropuertos más ocupados de Europa."},
-                {"origen":"LIRF","destino":"LICJ","aerolinea":"Alitalia (ITA Airways)","num":"AZ696","avion":"Airbus A319","duracion":"1h 05m","info":"Roma → Palermo. Puente aéreo peninsular–isla icónico."},
-                {"origen":"SAEZ","destino":"SAME","aerolinea":"Aerolíneas Argentinas","num":"AR1531","avion":"Boeing 737-700","duracion":"1h 35m","info":"Buenos Aires → Mendoza. Clásico doméstico argentino con los Andes de fondo."},
-                {"origen":"RKSI","destino":"RCTP","aerolinea":"Asiana Airlines","num":"OZ711","avion":"Airbus A321","duracion":"1h 55m","info":"Seúl → Taipei. El corredor del noreste asiático."},
-            ],
-            "🌟 Rutas Especiales / Desafiantes": [
-                {"origen":"BGGH","destino":"EKCH","aerolinea":"Air Greenland","num":"GL451","avion":"Airbus A330-900","duracion":"4h 30m","info":"Nuuk (Groenlandia) → Copenhague. Sobrevolando el Ártico. Pocas pistas tan aisladas como Nuuk."},
-                {"origen":"NZAA","destino":"NTAA","aerolinea":"Air New Zealand","num":"NZ1","avion":"Boeing 787-9","duracion":"5h 30m","info":"Auckland → Papeete (Tahití). Cruzando el Pacífico Sur hacia la Polinesia."},
-                {"origen":"SCCI","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA336","avion":"Airbus A319","duracion":"3h 40m","info":"Punta Arenas → Santiago. Desde el extremo austral del mundo hasta la capital. Una de las rutas más australes del mundo."},
-                {"origen":"LPLA","destino":"LPPT","aerolinea":"SATA Air Açores","num":"SP191","avion":"Airbus A320","duracion":"2h 10m","info":"Azores → Lisboa. Aterrizaje en la isla Terceira, famoso por el viento cruzado."},
-                {"origen":"EGLL","destino":"EGPD","aerolinea":"British Airways","num":"BA1336","avion":"Embraer E190","duracion":"1h 30m","info":"Londres → Aberdeen. Vuelo sobre Escocia, destino de la industria petrolera del Mar del Norte."},
-                {"origen":"VIDP","destino":"VQPR","aerolinea":"Druk Air","num":"KB200","avion":"Airbus A319","duracion":"1h 50m","info":"Delhi → Paro (Bután). El aeropuerto de Paro es uno de los más peligrosos del mundo: rodeado de montañas del Himalaya."},
-                {"origen":"KLAX","destino":"PHNL","aerolinea":"Hawaiian Airlines","num":"HA2","avion":"Airbus A330-900","duracion":"5h 45m","info":"Los Ángeles → Honolulú. Cruzando el Pacífico Norte hacia el paraíso."},
-                {"origen":"FACT","destino":"FHSH","aerolinea":"Airlink","num":"4Z541","avion":"Embraer E170","duracion":"2h 00m","info":"Ciudad del Cabo → Santa Elena. Isla remota del Atlántico Sur, destino de Napoleón."},
-            ],
-        }
+        # ------------------------------------------------------------------
+        # Helpers OpenSky
+        # ------------------------------------------------------------------
+        def obtener_token_opensky(client_id, client_secret):
+            """Intercambia client_id/secret por un Bearer token OAuth2."""
+            try:
+                r = requests.post(
+                    "https://auth.opensky-network.org/auth/realms/opensky-network"
+                    "/protocol/openid-connect/token",
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                    timeout=8,
+                )
+                if r.status_code == 200:
+                    return r.json().get("access_token"), None
+                return None, f"Auth error {r.status_code}"
+            except Exception as e:
+                return None, str(e)
 
-        # Filtros
-        col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
-        with col_f1:
-            categoria = st.selectbox("Categoría", ["🎲 Sorpréndeme (cualquiera)"] + list(VUELOS_REALES.keys()))
-        with col_f2:
-            regiones_avion = ["Cualquier avión"] + sorted(list(set(
-                v["avion"] for vuelos in VUELOS_REALES.values() for v in vuelos
-            )))
-            filtro_avion = st.selectbox("Filtrar por avión", regiones_avion)
-        with col_f3:
-            st.write("")
-            st.write("")
-            generar = st.button("🎲 Generar vuelo", use_container_width=True)
+        @st.cache_data(ttl=45)
+        def obtener_vuelos_opensky(token):
+            """
+            Descarga el snapshot de vuelos en curso de OpenSky.
+            Filtra los que tienen callsign (identificador de vuelo) y
+            los cruza con airportsdata para obtener ICAO de origen/destino.
+            Devuelve una lista de dicts listos para mostrar.
+            """
+            try:
+                r = requests.get(
+                    "https://opensky-network.org/api/states/all",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=15,
+                )
+                if r.status_code != 200:
+                    return None, f"OpenSky error {r.status_code}"
 
-        # Seleccionar vuelo
-        if generar or "vuelo_random" not in st.session_state:
-            if categoria == "🎲 Sorpréndeme (cualquiera)":
-                pool = [v for vuelos in VUELOS_REALES.values() for v in vuelos]
+                estados = r.json().get("states", []) or []
+
+                # Campos de cada estado:
+                # 0=icao24, 1=callsign, 2=origin_country, 5=lon, 6=lat,
+                # 7=baro_alt(m), 9=velocity(m/s), 10=heading, 13=on_ground
+                vuelos = []
+                for s in estados:
+                    callsign = (s[1] or "").strip()
+                    on_ground = s[13]
+                    lat = s[6]
+                    lon = s[5]
+                    alt_m = s[7] or 0
+                    vel_ms = s[9] or 0
+                    pais = s[2] or ""
+
+                    # Solo vuelos en aire con callsign y altitud razonable
+                    if not callsign or on_ground or alt_m < 1000 or lat is None:
+                        continue
+
+                    vuelos.append({
+                        "callsign": callsign,
+                        "icao24": s[0],
+                        "pais": pais,
+                        "lat": lat,
+                        "lon": lon,
+                        "alt_ft": round(alt_m * 3.28084),
+                        "vel_kt": round(vel_ms * 1.94384),
+                        "heading": round(s[10] or 0),
+                    })
+
+                return vuelos, None
+            except Exception as e:
+                return None, str(e)
+
+        def icao_mas_cercano(lat, lon, heading, db, max_dist_nm=600):
+            """
+            Dada la posición y rumbo de un avión, busca el aeropuerto
+            más probable de destino proyectando la trayectoria hacia adelante.
+            También retorna el origen como el aeropuerto más cercano hacia atrás.
+            """
+            mejor_dest = None
+            mejor_orig = None
+            min_dist_dest = float('inf')
+            min_dist_orig = float('inf')
+
+            # Proyectar ~300 NM hacia adelante en la dirección del rumbo
+            import math as _math
+            head_rad = _math.radians(heading)
+            proj_dist_nm = 300
+            proj_dist_deg = proj_dist_nm / 60
+            lat_proj = lat + proj_dist_deg * _math.cos(head_rad)
+            lon_proj = lon + proj_dist_deg * _math.sin(head_rad)
+
+            for icao, apt in db.items():
+                apt_lat = apt.get('lat')
+                apt_lon = apt.get('lon')
+                if apt_lat is None or apt_lon is None:
+                    continue
+                # Distancia al punto proyectado (destino)
+                d_dest = haversine_nm(lat_proj, lon_proj, apt_lat, apt_lon)
+                if d_dest < min_dist_dest and d_dest < max_dist_nm:
+                    min_dist_dest = d_dest
+                    mejor_dest = icao
+                # Distancia hacia atrás (origen)
+                lat_back = lat - proj_dist_deg * _math.cos(head_rad)
+                lon_back = lon - proj_dist_deg * _math.sin(head_rad)
+                d_orig = haversine_nm(lat_back, lon_back, apt_lat, apt_lon)
+                if d_orig < min_dist_orig and d_orig < max_dist_nm:
+                    min_dist_orig = d_orig
+                    mejor_orig = icao
+
+            return mejor_orig, mejor_dest
+
+        # ------------------------------------------------------------------
+        # UI principal
+        # ------------------------------------------------------------------
+        st.header("🎲 Vuelos Reales para el Simulador")
+
+        # Detectar si hay credenciales en st.secrets
+        tiene_opensky = (
+            "opensky" in st.secrets
+            and st.secrets["opensky"].get("client_id")
+            and st.secrets["opensky"].get("client_secret")
+        )
+
+        if tiene_opensky:
+            modo_fuente = st.radio(
+                "Fuente de vuelos",
+                ["🛰️ En vivo (OpenSky Network)", "📚 Base curada"],
+                horizontal=True,
+            )
+        else:
+            modo_fuente = "📚 Base curada"
+            st.info(
+                "💡 **Tip:** Para ver vuelos 100% en vivo de todo el mundo, "
+                "agregá tus credenciales de [OpenSky](https://opensky-network.org) "
+                "en los **Secrets** de Streamlit:\n"
+                "```toml\n[opensky]\nclient_id = \"tu_id\"\nclient_secret = \"tu_secret\"\n```\n"
+                "El registro es gratuito en opensky-network.org."
+            )
+
+        # ---- MODO EN VIVO ----
+        if modo_fuente == "🛰️ En vivo (OpenSky Network)":
+            col_v1, col_v2 = st.columns([3, 1])
+            with col_v2:
+                st.write("")
+                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
+
+            if generar_live or "vuelo_live" not in st.session_state:
+                with st.spinner("Conectando con OpenSky Network…"):
+                    token, err_tok = obtener_token_opensky(
+                        st.secrets["opensky"]["client_id"],
+                        st.secrets["opensky"]["client_secret"],
+                    )
+                if not token:
+                    st.error(f"No se pudo autenticar con OpenSky: {err_tok}")
+                    st.stop()
+
+                with st.spinner("Descargando tráfico aéreo en vivo…"):
+                    vuelos_live, err_live = obtener_vuelos_opensky(token)
+
+                if not vuelos_live:
+                    st.error(f"No se pudieron obtener vuelos: {err_live}")
+                    st.stop()
+
+                # Elegir uno aleatorio que tenga callsign comercial (≥5 chars)
+                candidatos = [v for v in vuelos_live if len(v["callsign"]) >= 5]
+                if not candidatos:
+                    candidatos = vuelos_live
+                elegido = random.choice(candidatos)
+
+                # Inferir origen/destino por posición y rumbo
+                orig_icao, dest_icao = icao_mas_cercano(
+                    elegido["lat"], elegido["lon"], elegido["heading"], AIRPORTS_DB
+                )
+                elegido["origen_icao"] = orig_icao or "????"
+                elegido["destino_icao"] = dest_icao or "????"
+                st.session_state["vuelo_live"] = elegido
+
+            v = st.session_state["vuelo_live"]
+            orig_icao = v["origen_icao"]
+            dest_icao = v["destino_icao"]
+            apt_orig = AIRPORTS_DB.get(orig_icao, {})
+            apt_dest = AIRPORTS_DB.get(dest_icao, {})
+
+            st.divider()
+            # Tarjeta principal
+            c1h, c2h = st.columns([3, 2])
+            with c1h:
+                st.markdown(f"## ✈️ `{v['callsign']}`")
+                st.markdown(
+                    f"**{apt_orig.get('name', orig_icao)}** `{orig_icao}` → "
+                    f"**{apt_dest.get('name', dest_icao)}** `{dest_icao}`"
+                )
+                st.caption(f"🌍 País de origen del avión: **{v['pais']}** — ICAO24: `{v['icao24']}`")
+            with c2h:
+                st.metric("✈️ Altitud actual", f"{v['alt_ft']:,} ft")
+                st.metric("💨 Velocidad", f"{v['vel_kt']} kt")
+                st.metric("🧭 Rumbo", f"{v['heading']}°")
+
+            # Info aeropuertos
+            st.divider()
+            col_ap1, col_ap2 = st.columns(2)
+            for col, icao_code, label in [(col_ap1, orig_icao, "🛫 Origen estimado"), (col_ap2, dest_icao, "🛬 Destino estimado")]:
+                apt = AIRPORTS_DB.get(icao_code, {})
+                with col:
+                    st.markdown(f"**{label} — {icao_code}**")
+                    if apt:
+                        st.markdown(f"**{apt.get('name','—')}**")
+                        st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
+                        st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
+
+            # Mapa con posición actual + ruta estimada
+            c_pos = [v["lat"], v["lon"]]
+            c_orig_c = obtener_coords(orig_icao)
+            c_dest_c = obtener_coords(dest_icao)
+
+            st.divider()
+            st.markdown("**🗺️ Posición actual y ruta estimada**")
+            m_live = folium.Map(location=c_pos, zoom_start=4, tiles="CartoDB dark_matter")
+
+            # Posición actual del avión
+            folium.Marker(
+                c_pos,
+                tooltip=f"✈️ {v['callsign']} — ahora mismo",
+                icon=folium.Icon(color="blue", icon="plane", prefix="fa"),
+                popup=f"Alt: {v['alt_ft']:,} ft | {v['vel_kt']} kt | {v['heading']}°"
+            ).add_to(m_live)
+
+            if c_orig_c and c_dest_c:
+                ruta = get_geodesic_path(c_orig_c[0], c_orig_c[1], c_dest_c[0], c_dest_c[1])
+                folium.PolyLine(ruta, color="#39ff14", weight=2, opacity=0.5,
+                                dash_array="8", tooltip="Ruta gran círculo estimada").add_to(m_live)
+                folium.Marker(c_orig_c, tooltip=orig_icao,
+                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_live)
+                folium.Marker(c_dest_c, tooltip=dest_icao,
+                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_live)
+                dist_nm = round(haversine_nm(c_orig_c[0], c_orig_c[1], c_dest_c[0], c_dest_c[1]))
+                st_folium(m_live, width=900, height=400)
+                st.caption(
+                    f"📏 Distancia total estimada: **{dist_nm} NM** — "
+                    f"Posición actual: {v['lat']:.3f}°, {v['lon']:.3f}°"
+                )
+                st.caption("⚠️ Origen y destino son estimados por posición y rumbo. OpenSky no expone números de vuelo comerciales en el tier gratuito.")
             else:
-                pool = VUELOS_REALES.get(categoria, [])
-            if filtro_avion != "Cualquier avión":
-                pool = [v for v in pool if v["avion"] == filtro_avion]
-            if pool:
-                st.session_state["vuelo_random"] = random.choice(pool)
-            else:
-                st.warning("No hay vuelos con esos filtros. Probá otra combinación.")
+                st_folium(m_live, width=900, height=400)
+
+            # Cargar en registro
+            st.divider()
+            if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+                st.session_state.form_data = {
+                    "origen": orig_icao,
+                    "destino": dest_icao,
+                    "ruta": "",
+                    "no_vuelo": v["callsign"],
+                    "tiempo": 0.0,
+                    "puerta_salida": "",
+                    "puerta_llegada": "",
+                }
+                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo' para completarlo.")
+
+        # ---- MODO BASE CURADA ----
+        else:
+            VUELOS_CURADOS = [
+                # Largo radio
+                {"origen":"EGLL","destino":"KJFK","aerolinea":"British Airways","num":"BA112","avion":"Boeing 777-200","duracion":"7h 30m","categoria":"Largo radio"},
+                {"origen":"OMDB","destino":"KLAX","aerolinea":"Emirates","num":"EK215","avion":"Airbus A380-800","duracion":"16h 15m","categoria":"Largo radio"},
+                {"origen":"YSSY","destino":"EGLL","aerolinea":"Qantas","num":"QF1","avion":"Boeing 787-9","duracion":"22h 00m","categoria":"Largo radio"},
+                {"origen":"KJFK","destino":"NZAA","aerolinea":"Air New Zealand","num":"NZ2","avion":"Boeing 787-9","duracion":"17h 40m","categoria":"Largo radio"},
+                {"origen":"LFPG","destino":"RJAA","aerolinea":"Air France","num":"AF276","avion":"Boeing 777-300ER","duracion":"12h 30m","categoria":"Largo radio"},
+                {"origen":"LEMD","destino":"SAEZ","aerolinea":"Aerolíneas Argentinas","num":"AR1140","avion":"Boeing 787-9","duracion":"13h 00m","categoria":"Largo radio"},
+                {"origen":"EGLL","destino":"OMDB","aerolinea":"Emirates","num":"EK3","avion":"Airbus A380-800","duracion":"7h 05m","categoria":"Largo radio"},
+                {"origen":"KLAX","destino":"RJAA","aerolinea":"Japan Airlines (JAL)","num":"JL62","avion":"Boeing 777-300ER","duracion":"11h 30m","categoria":"Largo radio"},
+                {"origen":"SBGR","destino":"LFPG","aerolinea":"Air France","num":"AF444","avion":"Boeing 777-300ER","duracion":"11h 20m","categoria":"Largo radio"},
+                {"origen":"FAOR","destino":"EGLL","aerolinea":"South African Airways","num":"SA234","avion":"Airbus A340-600","duracion":"11h 00m","categoria":"Largo radio"},
+                {"origen":"KLAX","destino":"PHNL","aerolinea":"Hawaiian Airlines","num":"HA2","avion":"Airbus A330-900","duracion":"5h 45m","categoria":"Largo radio"},
+                # Medio radio
+                {"origen":"SCEL","destino":"SAEZ","aerolinea":"LATAM Airlines","num":"LA400","avion":"Airbus A320","duracion":"2h 15m","categoria":"Medio radio"},
+                {"origen":"LEMD","destino":"LFPG","aerolinea":"Iberia","num":"IB3166","avion":"Airbus A321","duracion":"2h 05m","categoria":"Medio radio"},
+                {"origen":"KJFK","destino":"KMIA","aerolinea":"American Airlines","num":"AA1","avion":"Boeing 737-800","duracion":"3h 10m","categoria":"Medio radio"},
+                {"origen":"EHAM","destino":"LEMD","aerolinea":"KLM","num":"KL1706","avion":"Boeing 737-800","duracion":"2h 40m","categoria":"Medio radio"},
+                {"origen":"MMMX","destino":"KJFK","aerolinea":"Aeroméxico","num":"AM002","avion":"Boeing 787-8","duracion":"4h 30m","categoria":"Medio radio"},
+                {"origen":"SKBO","destino":"MPTO","aerolinea":"Copa Airlines","num":"CM303","avion":"Boeing 737-800","duracion":"1h 40m","categoria":"Medio radio"},
+                {"origen":"RJAA","destino":"RKSI","aerolinea":"All Nippon Airways (ANA)","num":"NH963","avion":"Boeing 767-300","duracion":"2h 25m","categoria":"Medio radio"},
+                {"origen":"EGLL","destino":"LIRF","aerolinea":"British Airways","num":"BA548","avion":"Airbus A320 Neo","duracion":"2h 30m","categoria":"Medio radio"},
+                {"origen":"SAEZ","destino":"SBGR","aerolinea":"LATAM Airlines Brasil","num":"LA8080","avion":"Airbus A320","duracion":"3h 00m","categoria":"Medio radio"},
+                {"origen":"SPJC","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA2037","avion":"Airbus A319","duracion":"3h 30m","categoria":"Medio radio"},
+                {"origen":"OMDB","destino":"VABB","aerolinea":"flydubai","num":"FZ551","avion":"Boeing 737 MAX 8","duracion":"3h 15m","categoria":"Medio radio"},
+                # Corto radio
+                {"origen":"LEMD","destino":"LEBL","aerolinea":"Vueling","num":"VY1803","avion":"Airbus A320","duracion":"1h 10m","categoria":"Corto radio"},
+                {"origen":"EGLL","destino":"EGPH","aerolinea":"British Airways","num":"BA1478","avion":"Airbus A319","duracion":"1h 20m","categoria":"Corto radio"},
+                {"origen":"KJFK","destino":"KBOS","aerolinea":"JetBlue","num":"B61025","avion":"Airbus A320","duracion":"1h 10m","categoria":"Corto radio"},
+                {"origen":"SCEL","destino":"SCTE","aerolinea":"Sky Airline","num":"H2201","avion":"Airbus A320","duracion":"1h 30m","categoria":"Corto radio"},
+                {"origen":"EHAM","destino":"EGLL","aerolinea":"KLM","num":"KL1009","avion":"Embraer E190","duracion":"1h 05m","categoria":"Corto radio"},
+                {"origen":"SAEZ","destino":"SAME","aerolinea":"Aerolíneas Argentinas","num":"AR1531","avion":"Boeing 737-700","duracion":"1h 35m","categoria":"Corto radio"},
+                {"origen":"RKSI","destino":"RCTP","aerolinea":"Asiana Airlines","num":"OZ711","avion":"Airbus A321","duracion":"1h 55m","categoria":"Corto radio"},
+                # Desafiantes
+                {"origen":"BGGH","destino":"EKCH","aerolinea":"Air Greenland","num":"GL451","avion":"Airbus A330-900","duracion":"4h 30m","categoria":"Desafiante"},
+                {"origen":"NZAA","destino":"NTAA","aerolinea":"Air New Zealand","num":"NZ1","avion":"Boeing 787-9","duracion":"5h 30m","categoria":"Desafiante"},
+                {"origen":"SCCI","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA336","avion":"Airbus A319","duracion":"3h 40m","categoria":"Desafiante"},
+                {"origen":"LPLA","destino":"LPPT","aerolinea":"SATA Air Açores","num":"SP191","avion":"Airbus A320","duracion":"2h 10m","categoria":"Desafiante"},
+                {"origen":"VIDP","destino":"VQPR","aerolinea":"Druk Air","num":"KB200","avion":"Airbus A319","duracion":"1h 50m","categoria":"Desafiante"},
+                {"origen":"FACT","destino":"FHSH","aerolinea":"Airlink","num":"4Z541","avion":"Embraer E170","duracion":"2h 00m","categoria":"Desafiante"},
+            ]
+
+            col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+            cats = ["Cualquiera", "Largo radio", "Medio radio", "Corto radio", "Desafiante"]
+            with col_f1:
+                cat_sel = st.selectbox("Categoría", cats)
+            with col_f2:
+                aviones_disp = ["Cualquier avión"] + sorted(set(v["avion"] for v in VUELOS_CURADOS))
+                avion_sel = st.selectbox("Avión", aviones_disp)
+            with col_f3:
+                st.write("")
+                st.write("")
+                generar_cur = st.button("🎲 Generar vuelo", use_container_width=True)
+
+            if generar_cur or "vuelo_random" not in st.session_state:
+                pool = VUELOS_CURADOS.copy()
+                if cat_sel != "Cualquiera":
+                    pool = [v for v in pool if v["categoria"] == cat_sel]
+                if avion_sel != "Cualquier avión":
+                    pool = [v for v in pool if v["avion"] == avion_sel]
+                if pool:
+                    st.session_state["vuelo_random"] = random.choice(pool)
+                else:
+                    st.warning("Sin resultados con esos filtros.")
+                    st.stop()
+
+            v = st.session_state.get("vuelo_random")
+            if not v:
                 st.stop()
 
-        v = st.session_state.get("vuelo_random")
-        if not v:
-            st.info("Presioná 'Generar vuelo' para empezar.")
-            st.stop()
-
-        # Mostrar tarjeta del vuelo
-        st.divider()
-        c_card1, c_card2 = st.columns([3, 2])
-        with c_card1:
-            st.markdown(f"## 🛫 {v['origen']}  →  🛬 {v['destino']}")
-            st.markdown(f"**{v['aerolinea']}** — Vuelo `{v['num']}`")
-            st.markdown(f"_{v['info']}_")
-
-        with c_card2:
-            st.metric("✈️ Avión", v["avion"])
-            st.metric("⏱️ Duración estimada", v["duracion"])
-
-        # Info del aeropuerto con airportsdata
-        st.divider()
-        col_ap1, col_ap2 = st.columns(2)
-        for col, icao_code, label in [(col_ap1, v["origen"], "🛫 Origen"), (col_ap2, v["destino"], "🛬 Destino")]:
-            apt = AIRPORTS_DB.get(icao_code, {})
-            with col:
-                st.markdown(f"**{label} — {icao_code}**")
-                if apt:
-                    st.markdown(f"**{apt.get('name','—')}**")
-                    st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
-                    st.caption(f"🌐 {apt.get('lat',''):.4f}°, {apt.get('lon',''):.4f}°")
-                    st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
-                else:
-                    st.caption("Aeropuerto no encontrado en base de datos.")
-
-        # Mini mapa de la ruta
-        c_orig = obtener_coords(v["origen"])
-        c_dest = obtener_coords(v["destino"])
-        if c_orig and c_dest:
             st.divider()
-            st.markdown("**🗺️ Ruta del vuelo**")
-            m_rand = folium.Map(
-                location=[(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2],
-                zoom_start=3, tiles="CartoDB dark_matter"
-            )
-            ruta_curva = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
-            folium.PolyLine(ruta_curva, color="#39ff14", weight=3, opacity=0.8).add_to(m_rand)
-            folium.Marker(c_orig, tooltip=v["origen"],
-                          icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_rand)
-            folium.Marker(c_dest, tooltip=v["destino"],
-                          icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_rand)
-            # Calcular distancia
-            dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1]))
-            st_folium(m_rand, width=900, height=380)
-            st.caption(f"📏 Distancia gran círculo: **{dist_nm} NM** ({round(dist_nm*1.852)} km)")
+            c_card1, c_card2 = st.columns([3, 2])
+            with c_card1:
+                apt_o = AIRPORTS_DB.get(v["origen"], {})
+                apt_d = AIRPORTS_DB.get(v["destino"], {})
+                st.markdown(
+                    f"## 🛫 {apt_o.get('name', v['origen'])} → "
+                    f"🛬 {apt_d.get('name', v['destino'])}"
+                )
+                st.markdown(
+                    f"**{v['aerolinea']}** — Vuelo `{v['num']}` — "
+                    f"_{v['categoria']}_"
+                )
+            with c_card2:
+                st.metric("✈️ Avión", v["avion"])
+                st.metric("⏱️ Duración", v["duracion"])
 
-        # Botón para cargar en el formulario de registro
-        st.divider()
-        if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
-            st.session_state.form_data = {
-                "origen": v["origen"],
-                "destino": v["destino"],
-                "ruta": "",
-                "no_vuelo": v["num"],
-                "tiempo": 0.0,
-                "puerta_salida": "",
-                "puerta_llegada": "",
-            }
-            st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
-            st.success(f"✅ Vuelo {v['num']} cargado. Andá a '📋 Registro de Vuelo' para completarlo.")
+            st.divider()
+            col_ap1, col_ap2 = st.columns(2)
+            for col, icao_code, label in [(col_ap1, v["origen"], "🛫 Origen"), (col_ap2, v["destino"], "🛬 Destino")]:
+                apt = AIRPORTS_DB.get(icao_code, {})
+                with col:
+                    st.markdown(f"**{label} — {icao_code}**")
+                    if apt:
+                        st.markdown(f"**{apt.get('name','—')}**")
+                        st.caption(f"📍 {apt.get('city','')}, {apt.get('country','')}")
+                        st.caption(f"🏔️ Elevación: {apt.get('elevation',0)} ft")
+
+            c_orig = obtener_coords(v["origen"])
+            c_dest = obtener_coords(v["destino"])
+            if c_orig and c_dest:
+                st.divider()
+                st.markdown("**🗺️ Ruta del vuelo**")
+                m_r = folium.Map(
+                    location=[(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2],
+                    zoom_start=3, tiles="CartoDB dark_matter"
+                )
+                ruta_curva = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
+                folium.PolyLine(ruta_curva, color="#39ff14", weight=3, opacity=0.8).add_to(m_r)
+                folium.Marker(c_orig, tooltip=v["origen"],
+                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_r)
+                folium.Marker(c_dest, tooltip=v["destino"],
+                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_r)
+                dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1]))
+                st_folium(m_r, width=900, height=380)
+                st.caption(f"📏 Distancia gran círculo: **{dist_nm} NM** ({round(dist_nm*1.852)} km)")
+
+            st.divider()
+            if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+                st.session_state.form_data = {
+                    "origen": v["origen"],
+                    "destino": v["destino"],
+                    "ruta": "",
+                    "no_vuelo": v["num"],
+                    "tiempo": 0.0,
+                    "puerta_salida": "",
+                    "puerta_llegada": "",
+                }
+                st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
+                st.success(f"✅ Vuelo {v['num']} cargado. Andá a '📋 Registro de Vuelo'.")
 
 
     elif menu == "🧰 Herramientas":
