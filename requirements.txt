@@ -8,4 +8,4 @@ folium
 streamlit-folium
 gspread
 oauth2client
-FlightRadarAPI
+FlightRadarAPI>=1.3.0
