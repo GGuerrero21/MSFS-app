@@ -761,54 +761,123 @@ def main_app():
         if st.button("Reset"):
             st.rerun()
 
-    # =========================================================
-    # 3. MAPA
+   # =========================================================
+    # 3. MAPA Y EXPLORADOR DE RUTAS
     # =========================================================
     elif menu == "🗺️ Mapa":
-        st.header("🗺️ Historial de Rutas")
+        st.header("🗺️ Explorador Global de Rutas")
         df = leer_vuelos()
+        
         if not df.empty:
-            col_map1, col_map2, col_map3 = st.columns([1, 1, 2])
-            with col_map1:
-                mostrar_iconos = st.toggle("Mostrar Iconos 📍", value=True)
-            # Filtro por aerolínea
-            aeros_disp = ["Todas"] + sorted(df['Aerolinea'].dropna().unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
-            with col_map2:
-                filtro_aero = st.selectbox("Aerolínea", aeros_disp)
-
-            df_mapa = df if filtro_aero == "Todas" else df[df['Aerolinea'] == filtro_aero]
-
-            m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
-            rutas_dibujadas = 0
-            aeropuertos_faltantes = set()
-
-            for i, r in df_mapa.iterrows():
-                origen = str(r['Origen']).strip().upper()
-                destino = str(r['Destino']).strip().upper()
-                c1 = obtener_coords(origen)
-                c2 = obtener_coords(destino)
-                if c1 and c2:
-                    ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
-                    folium.PolyLine(ruta_curva, color="#39ff14", weight=3, opacity=0.7,
-                                   tooltip=f"✈️ {origen} → {destino}").add_to(m)
-                    if mostrar_iconos:
-                        folium.Marker(c1, popup=folium.Popup(f"🛫 {origen}", max_width=200),
-                                      icon=folium.Icon(color="green", icon="plane", prefix="fa"),
-                                      tooltip=origen).add_to(m)
-                        folium.Marker(c2, popup=folium.Popup(f"🛬 {destino}", max_width=200),
-                                      icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa"),
-                                      tooltip=destino).add_to(m)
-                    rutas_dibujadas += 1
+            # Layout: Panel de controles a la izquierda, Mapa a la derecha
+            c_ctrl, c_mapa = st.columns([1, 3.5])
+            
+            with c_ctrl:
+                st.subheader("🎛️ Filtros")
+                
+                # Filtros desplegables
+                aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
+                filtro_aero = st.selectbox("🏢 Aerolínea", aeros)
+                
+                aviones = ["Todos"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["Todos"]
+                filtro_avion = st.selectbox("🛩️ Avión", aviones)
+                
+                st.divider()
+                st.subheader("🎨 Estilos")
+                estilo_mapa = st.radio("Capa base del mapa:", ["Modo Oscuro", "Modo Claro", "Satélite"], label_visibility="collapsed")
+                mostrar_iconos = st.toggle("📍 Mostrar Aeropuertos", value=True)
+                
+                # Aplicar filtros a los datos
+                df_mapa = df.copy()
+                if filtro_aero != "Todas": df_mapa = df_mapa[df_mapa['Aerolinea'] == filtro_aero]
+                if filtro_avion != "Todos": df_mapa = df_mapa[df_mapa['Modelo_Avion'] == filtro_avion]
+                
+                st.divider()
+                
+                # Estadísticas dinámicas según lo filtrado
+                rutas_visibles = len(df_mapa)
+                if 'Distancia_NM' in df_mapa.columns:
+                    dist_total = pd.to_numeric(df_mapa['Distancia_NM'], errors='coerce').fillna(0).sum()
                 else:
-                    if not c1: aeropuertos_faltantes.add(origen)
-                    if not c2: aeropuertos_faltantes.add(destino)
+                    dist_total = 0
+                    
+                st.metric("Vuelos en pantalla", rutas_visibles)
+                st.metric("Distancia cubierta", f"{dist_total:,.0f} NM")
+                
+            with c_mapa:
+                # Diccionario de estilos de mapa
+                tiles_dict = {
+                    "Modo Oscuro": "CartoDB dark_matter",
+                    "Modo Claro": "CartoDB positron",
+                    "Satélite": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                }
+                attr_dict = {
+                    "Satélite": "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+                }
 
-            st_folium(m, width=1100, height=600)
-            if aeropuertos_faltantes:
-                st.warning(f"⚠️ Faltan coordenadas para: {', '.join(aeropuertos_faltantes)}")
-            st.caption(f"✅ Mostrando {rutas_dibujadas} rutas.")
+                # Centrar el mapa en el último vuelo registrado, si no en el ecuador
+                centro = [20, 0]
+                if not df_mapa.empty:
+                    ult_orig = str(df_mapa.iloc[-1].get('Origen', '')).strip()
+                    c_ult = obtener_coords(ult_orig)
+                    if c_ult: centro = c_ult
+
+                # Crear objeto mapa base
+                if estilo_mapa == "Satélite":
+                    m = folium.Map(location=centro, zoom_start=3, tiles=tiles_dict[estilo_mapa], attr=attr_dict[estilo_mapa])
+                else:
+                    m = folium.Map(location=centro, zoom_start=3, tiles=tiles_dict[estilo_mapa])
+
+                aeropuertos_dibujados = set()
+                
+                for i, r in df_mapa.iterrows():
+                    origen = str(r.get('Origen', '')).strip().upper()
+                    destino = str(r.get('Destino', '')).strip().upper()
+                    aero = r.get('Aerolinea', 'N/A')
+                    avion = r.get('Modelo_Avion', 'N/A')
+                    
+                    c1 = obtener_coords(origen)
+                    c2 = obtener_coords(destino)
+                    
+                    if c1 and c2:
+                        # Trazar la curva geodésica
+                        ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
+                        
+                        # Info al pasar el mouse por la línea
+                        tooltip_html = f"<div style='font-family:sans-serif; text-align:center;'><b>{aero}</b><br>{origen} ➡️ {destino}<br><span style='color:gray;font-size:11px;'>✈️ {avion}</span></div>"
+                        
+                        # Color dinámico según el estilo del mapa
+                        color_linea = "#00f2fe" if estilo_mapa == "Modo Oscuro" else "#ff0844"
+                        
+                        folium.PolyLine(
+                            ruta_curva, 
+                            color=color_linea, 
+                            weight=2.5, 
+                            opacity=0.6,
+                            tooltip=tooltip_html
+                        ).add_to(m)
+                        
+                        # Dibujar pines solo si está activado el toggle
+                        if mostrar_iconos:
+                            for apt_code, apt_coord in [(origen, c1), (destino, c2)]:
+                                if apt_code not in aeropuertos_dibujados:
+                                    nom_apt = AIRPORTS_DB.get(apt_code, {}).get('name', apt_code)
+                                    folium.CircleMarker(
+                                        location=apt_coord,
+                                        radius=4,
+                                        color="#ffffff" if estilo_mapa != "Modo Claro" else "#000000",
+                                        fill=True,
+                                        fill_color=color_linea,
+                                        fill_opacity=1,
+                                        tooltip=f"<b>{apt_code}</b> - {nom_apt}"
+                                    ).add_to(m)
+                                    aeropuertos_dibujados.add(apt_code)
+
+                # returned_objects=[] evita que la app recargue los datos cada vez que movés el mapa
+                st_folium(m, width="100%", height=650, returned_objects=[]) 
+
         else:
-            st.info("No hay vuelos registrados.")
+            st.info("No hay vuelos registrados para mostrar en el mapa.")
 
     # =========================================================
     # 4. CLIMA
