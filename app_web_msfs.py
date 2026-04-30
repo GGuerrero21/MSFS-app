@@ -669,12 +669,15 @@ def main_app():
                 st.session_state["aerolinea_seleccionada"] = st.selectbox("Seleccionar aerolínea guardada", lista_aero, index=idx_default, label_visibility="collapsed")
 
         # --- FORMULARIO REDISEÑADO ---
+# --- FORMULARIO REDISEÑADO ---
         with st.form("vuelo", clear_on_submit=False):
             st.markdown("#### ✈️ Identificación del Vuelo")
             c1, c2, c3, c4 = st.columns(4)
             fecha = c1.date_input("📅 Fecha", value=datetime.now())
             num = c2.text_input("🔢 N° Vuelo / Callsign", value=st.session_state.form_data["no_vuelo"])
-            modelo = c3.selectbox("🛩️ Equipo", MODELOS_AVION) # Si en el paso anterior usaste AVIONES_DINAMICOS, cambialo acá.
+            
+            # Usamos AVIONES_DINAMICOS porque ya está enlazado a tu Google Sheets
+            modelo = c3.selectbox("🛩️ Equipo", AVIONES_DINAMICOS) 
             l_rate = c4.number_input("📉 Toque (fpm)", value=0, step=10, help="Ej: -150")
 
             st.markdown("#### 🗺️ Ruta y Puertas")
@@ -686,7 +689,7 @@ def main_app():
 
             st.markdown("#### ⏱️ Tiempos de Calzos (ZULU)")
             t1, t2, t3 = st.columns([1, 1, 2])
-            # Intentamos parsear la hora de SimBrief si existe, si no 12:00
+            
             def_out = time(12, 0)
             if st.session_state.form_data.get("hora_salida") and ":" in st.session_state.form_data["hora_salida"]:
                 try:
@@ -696,13 +699,15 @@ def main_app():
 
             h_out = t1.time_input("Hora OUT (Salida)", value=def_out, step=60)
             h_in = t2.time_input("Hora IN (Llegada)", value=time(14, 0), step=60)
-            t3.info("💡 El Tiempo de Vuelo (`HH:MM`) se calculará y guardará automáticamente al confirmar.")
+            t3.info("💡 El Tiempo de Vuelo se calculará y guardará automáticamente al confirmar.")
 
             st.markdown("#### 📝 Detalles Adicionales")
             ruta = st.text_area("Ruta de Vuelo", value=st.session_state.form_data["ruta"], height=68, placeholder="Ej: SUMU3 SUMU SID KUKEN UM534... ")
             notas = st.text_area("Notas / Observaciones", height=68, placeholder="Combustible restante, METAR en ruta, incidencias...")
 
             st.markdown("---")
+            
+            # Este es el botón que debe estar obligatoriamente dentro del bloque
             submitted = st.form_submit_button("💾 Guardar en Bitácora")
 
         if submitted:
