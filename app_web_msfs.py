@@ -420,14 +420,12 @@ def obtener_notams(icao_code):
     if not icao_code or len(icao_code) != 4: 
         return None, "❌ Código ICAO inválido."
     try:
-        # Consultamos la API pública de AviationAPI
         r = requests.get(f"https://api.aviationapi.com/v1/notams?icao={icao_code.upper()}", timeout=10)
         
         if r.status_code == 200:
             data = r.json()
             notams_list = []
             
-            # La API devuelve un diccionario ej: {"SCEL": [ {"notam": "texto..."}, ... ]}
             if isinstance(data, dict):
                 lista = data.get(icao_code.upper(), [])
                 for n in lista:
@@ -503,8 +501,13 @@ def main_app():
     # =========================================================
     if menu == "📋 Registro de Vuelo":
         st.header("📋 Bitácora de Vuelo")
+        st.caption("Completá los datos del despacho. El tiempo de vuelo se calculará de forma automática bloque a bloque.")
+
         if 'form_data' not in st.session_state:
-            st.session_state.form_data = {"origen": "", "destino": "", "ruta": "", "no_vuelo": "", "puerta_salida": "", "puerta_llegada": ""}
+            st.session_state.form_data = {
+                "origen": "", "destino": "", "ruta": "", "no_vuelo": "",
+                "puerta_salida": "", "puerta_llegada": ""
+            }
 
         with st.expander("📥 Importar desde SimBrief", expanded=False):
             c1, c2 = st.columns([3, 1])
@@ -514,17 +517,19 @@ def main_app():
                 if datos:
                     st.session_state.form_data.update(datos)
                     st.success("¡Plan de vuelo importado!")
-                else: st.error(err)
+                else:
+                    st.error(err)
 
         st.markdown("#### 🏢 Operador / Aerolínea")
         if "nueva_aerolinea_modo" not in st.session_state: st.session_state["nueva_aerolinea_modo"] = False
-        if "aerolinea_seleccionada" not in st.session_state: st.session_state["aerolinea_seleccionada"] = AEROLINEAS_BASE[0]
+        if "aerolinea_seleccionada" not in st.session_state: st.session_state["aerolinea_seleccionada"] = AEROLINEAS_BASE[0] 
 
         col_aero1, col_aero2 = st.columns([3, 1])
-        with col_aero2: st.session_state["nueva_aerolinea_modo"] = st.toggle("➕ Aerolínea manual", value=st.session_state["nueva_aerolinea_modo"])
+        with col_aero2:
+            st.session_state["nueva_aerolinea_modo"] = st.toggle("➕ Aerolínea manual", value=st.session_state["nueva_aerolinea_modo"])
         with col_aero1:
             if st.session_state["nueva_aerolinea_modo"]:
-                nueva_aero_input = st.text_input("Ingresar aerolínea manualmente", key="nueva_aero_input")
+                nueva_aero_input = st.text_input("Ingresar aerolínea manualmente", placeholder="Ej: Vuelo Privado", key="nueva_aero_input")
                 if nueva_aero_input.strip(): st.session_state["aerolinea_seleccionada"] = nueva_aero_input.strip()
             else:
                 lista_aero = obtener_aerolineas_inteligente()
@@ -537,7 +542,7 @@ def main_app():
             fecha = c1.date_input("📅 Fecha", value=datetime.now())
             num = c2.text_input("🔢 N° Vuelo / Callsign", value=st.session_state.form_data["no_vuelo"])
             modelo = c3.selectbox("🛩️ Equipo", AVIONES_DINAMICOS) 
-            l_rate = c4.number_input("📉 Toque (fpm)", value=0, step=10)
+            l_rate = c4.number_input("📉 Toque (fpm)", value=0, step=10, help="Ej: -150")
 
             st.markdown("#### 🗺️ Ruta y Puertas")
             r1, r2, r3, r4 = st.columns(4)
@@ -548,6 +553,7 @@ def main_app():
 
             st.markdown("#### ⏱️ Tiempos de Calzos (ZULU)")
             t1, t2, t3 = st.columns([1, 1, 2])
+            
             def_out = time(12, 0)
             if st.session_state.form_data.get("hora_salida") and ":" in st.session_state.form_data["hora_salida"]:
                 try:
@@ -555,33 +561,44 @@ def main_app():
                     def_out = time(int(ho), int(mi))
                 except: pass
 
-            h_out = t1.time_input("Hora OUT", value=def_out, step=60)
-            h_in = t2.time_input("Hora IN", value=time(14, 0), step=60)
-            t3.info("💡 El Tiempo de Vuelo se calculará automáticamente al confirmar.")
+            h_out = t1.time_input("Hora OUT (Salida)", value=def_out, step=60)
+            h_in = t2.time_input("Hora IN (Llegada)", value=time(14, 0), step=60)
+            t3.info("💡 El Tiempo de Vuelo se calculará y guardará automáticamente al confirmar.")
 
             st.markdown("#### 📝 Detalles Adicionales")
-            ruta = st.text_area("Ruta de Vuelo", value=st.session_state.form_data["ruta"], height=68)
-            notas = st.text_area("Notas / Observaciones", height=68)
+            ruta = st.text_area("Ruta de Vuelo", value=st.session_state.form_data["ruta"], height=68, placeholder="Ej: SUMU3 SUMU SID KUKEN UM534... ")
+            notas = st.text_area("Notas / Observaciones", height=68, placeholder="Combustible restante, METAR en ruta, incidencias...")
 
             st.markdown("---")
             submitted = st.form_submit_button("💾 Guardar en Bitácora")
 
         if submitted:
-            if not origen or len(origen) < 3: st.error("❌ ICAO de origen inválido.")
-            elif not destino or len(destino) < 3: st.error("❌ ICAO de destino inválido.")
-            elif st.session_state["nueva_aerolinea_modo"] and not st.session_state["aerolinea_seleccionada"]: st.error("❌ Escribí la aerolínea.")
+            aero_final = st.session_state["aerolinea_seleccionada"]
+
+            if not origen or len(origen) < 3:
+                st.error("❌ Ingresá un código ICAO de origen válido.")
+            elif not destino or len(destino) < 3:
+                st.error("❌ Ingresá un código ICAO de destino válido.")
+            elif st.session_state["nueva_aerolinea_modo"] and not aero_final:
+                st.error("❌ Escribí el nombre de la nueva aerolínea.")
             else:
                 tiempo_hhmm = calcular_diferencia_hhmm(h_out, h_in)
-                c_orig, c_dest = obtener_coords(origen), obtener_coords(destino)
+                c_orig = obtener_coords(origen)
+                c_dest = obtener_coords(destino)
                 distancia = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1])) if c_orig and c_dest else 0
 
-                row = [str(fecha), origen, destino, ruta, st.session_state["aerolinea_seleccionada"], num, modelo,
-                       h_out.strftime("%H:%M"), h_in.strftime("%H:%M"), tiempo_hhmm, distancia, p_out, p_in, l_rate, notas]
-                with st.spinner("Registrando..."):
+                row = [
+                    str(fecha), origen, destino, ruta, aero_final, num, modelo,
+                    h_out.strftime("%H:%M"), h_in.strftime("%H:%M"),
+                    tiempo_hhmm, distancia, p_out, p_in, l_rate, notas
+                ]
+                with st.spinner("Registrando vuelo..."):
                     if guardar_vuelo_gs(row):
-                        st.success(f"✅ Vuelo {origen}→{destino} guardado. Tiempo: **{tiempo_hhmm}**.")
+                        dist_txt = f" ({distancia} NM)" if distancia > 0 else ""
+                        st.success(f"✅ Vuelo {origen}→{destino}{dist_txt} guardado. Tiempo registrado: **{tiempo_hhmm}**.")
                         st.session_state["nueva_aerolinea_modo"] = False
-                    else: st.error("Error al guardar.")
+                    else:
+                        st.error("Error al guardar en la nube.")
 
     # =========================================================
     # CHECKLISTS
@@ -677,7 +694,7 @@ def main_app():
         else: st.info("No hay vuelos registrados en el mapa.")
 
     # =========================================================
-    # CLIMA Y NOTAMS
+    # CLIMA Y NOTAMS (RESTAURADO)
     # =========================================================
     elif menu == "☁️ Clima (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico y Alertas")
@@ -685,46 +702,111 @@ def main_app():
 
         with tab1:
             with st.form("metar_search"):
-                c1, c2 = st.columns([3, 1])
-                icao_input = c1.text_input("Código ICAO", max_chars=4).upper()
-                buscar = c2.form_submit_button("Buscar 🔎")
+                col_s1, col_s2 = st.columns([3, 1])
+                icao_input = col_s1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL, EGLL, KJFK")
+                buscar = col_s2.form_submit_button("Buscar Clima 🔎")
 
             if buscar and icao_input:
-                datos, err = obtener_clima(icao_input)
-                if not datos: st.error(err)
+                icao_q = icao_input.strip().upper()
+                datos, err = obtener_clima(icao_q)
+                if not datos:
+                    st.error(err)
                 else:
-                    m_raw, t_raw = datos
-                    st.subheader(f"METAR — {icao_input}")
-                    st.code(m_raw, language=None)
+                    metar_raw, taf_raw = datos
+                    st.subheader(f"METAR — {icao_q}")
+                    st.code(metar_raw, language=None)
                     
-                    if m_raw not in ("No disponible", "Error conexión"):
-                        dec = decodificar_metar(m_raw)
-                        if dec.get('alerta_niebla'): st.warning("⚠️ Temp y rocío cercanos — riesgo de niebla.")
-                        st.json(dec, expanded=False) # Visualización compacta JSON del METAR decodificado
-                    
+                    if metar_raw not in ("No disponible", "Error conexión"):
+                        dec = decodificar_metar(metar_raw)
+                        if dec.get('alerta_niebla'):
+                            st.warning("⚠️ Temp y punto de rocío muy cercanos — riesgo de niebla.")
+                        
+                        # RESTAURADO: Diseño en grilla para las métricas del METAR
+                        campos = [
+                            ("📍 Estación",    dec.get('estacion',    '—')),
+                            ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
+                            ("💨 Viento",      dec.get('viento',      '—')),
+                            ("👁️ Visibilidad", dec.get('visibilidad', '—')),
+                            ("🌡️ Temperatura", dec.get('temperatura', '—')),
+                            ("💧 Rocío",       dec.get('rocio',       '—')),
+                            ("🧭 QNH",         dec.get('qnh',         '—')),
+                            ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
+                        ]
+                        if dec.get('fenomenos'):
+                            campos.insert(4, ("⛈️ Fenómenos", dec['fenomenos']))
+                            
+                        for i in range(0, len(campos), 4):
+                            row_c = st.columns(4)
+                            for j, (lbl, val) in enumerate(campos[i:i+4]):
+                                row_c[j].metric(lbl, val)
+                                
+                        if dec.get('tendencia'):
+                            st.info(f"**Tendencia:** `{dec['tendencia']}`")
+                            
                     st.divider()
-                    if t_raw not in ("No disponible", "Error conexión"):
-                        st.subheader(f"TAF — {icao_input}")
-                        st.code(t_raw.replace('BECMG', '\n  BECMG').replace('TEMPO', '\n  TEMPO'), language=None)
+                    
+                    if taf_raw not in ("No disponible", "Error conexión"):
+                        st.subheader(f"TAF — {icao_q}")
+                        taf_fmt = taf_raw.strip().replace('BECMG', '\n  BECMG').replace('TEMPO', '\n  TEMPO').replace(' FM', '\n  FM').replace('PROB', '\n  PROB')
+                        st.code(taf_fmt, language=None)
+                    else:
+                        st.info("TAF no disponible para este aeropuerto.")
+                        
+            elif buscar:
+                st.warning("Ingresá un código ICAO primero.")
 
+            st.divider()
+            st.subheader("🔧 Decodificador manual")
+            st.caption("Pegá cualquier METAR para decodificarlo sin conexión a red.")
+            metar_manual = st.text_input("METAR", placeholder="Ej: SCEL 151400Z 18012KT 9999 SCT040 17/10 Q1014")
+            if metar_manual.strip():
+                dec = decodificar_metar(metar_manual.strip())
+                if dec:
+                    campos_m = [
+                        ("📍 Estación",    dec.get('estacion',    '—')),
+                        ("💨 Viento",      dec.get('viento',      '—')),
+                        ("👁️ Visibilidad", dec.get('visibilidad', '—')),
+                        ("🌡️ Temperatura", dec.get('temperatura', '—')),
+                        ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
+                        ("🧭 QNH",         dec.get('qnh',         '—')),
+                    ]
+                    for i in range(0, len(campos_m), 3):
+                        row_c = st.columns(3)
+                        for j, (lbl, val) in enumerate(campos_m[i:i+3]):
+                            row_c[j].metric(lbl, val)
+
+        # RESTAURADO: Explicación completa del TAF
         with tab2:
-            st.markdown("**BECMG**: Cambio gradual permanente. | **TEMPO**: Cambio temporal. | **FM**: Cambio rápido desde esa hora. | **PROB30/40**: Probabilidad.")
+            st.subheader("📡 ¿Cómo leer un TAF completo?")
+            st.markdown("El TAF es el pronóstico oficial del aeropuerto. Dura normalmente 24–30 horas.")
+            st.code("""TAF EGLL 151700Z 1518/1624 27015KT 9999 SCT030
+  BECMG 1520/1522 27008KT
+  TEMPO 1600/1606 4000 RADZ BKN008
+  PROB30 TEMPO 1606/1612 0800 FG BKN002
+  FM161200 29012KT 9999 FEW025""", language=None)
+            with st.expander("🔍 Línea por línea", expanded=True):
+                st.markdown("- **BECMG**: Cambio gradual permanente.\n- **TEMPO**: Cambio temporal.\n- **FM**: Cambio rápido desde esa hora.\n- **PROB30/40**: Probabilidad.")
+
+        # RESTAURADO: Pestaña de referencias completa
         with tab3:
-            st.markdown("**Nubes:** `FEW` (1-2/8), `SCT` (3-4/8), `BKN` (5-7/8), `OVC` (8/8).")
-# ---- TAB 4: NOTAMs REALES ----
+            st.subheader("🎓 Referencia rápida METAR/TAF")
+            c_ref1, c_ref2 = st.columns(2)
+            with c_ref1:
+                st.markdown("**Nubes:**\n- `FEW` (Escasas) 1-2/8\n- `SCT` (Dispersas) 3-4/8\n- `BKN` (Fragmentadas - TECHO) 5-7/8\n- `OVC` (Cubierto - TECHO) 8/8")
+            with c_ref2:
+                st.markdown("**Fenómenos:**\n- `RA` (Lluvia) / `SN` (Nieve)\n- `FG` (Niebla) / `BR` (Neblina)\n- `TS` (Tormenta) / `FZRA` (Lluvia Engelante)")
+
         with tab4:
             st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
             st.caption("Los NOTAMs contienen información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
             
             with st.form("form_notam"):
                 icao_notam = st.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL").upper()
-                
                 if st.form_submit_button("📡 Descargar NOTAMs"):
                     if not icao_notam: 
                         st.warning("Completá el código ICAO primero.")
                     else:
                         with st.spinner(f"Descargando NOTAMs oficiales para {icao_notam}..."):
-                            # Ya no pasamos ninguna API Key
                             notams, error = obtener_notams(icao_notam)
                             
                             if error: 
@@ -737,7 +819,6 @@ def main_app():
                                 for idx, nt in enumerate(notams):
                                     with st.expander(f"NOTAM {idx + 1}"): 
                                         st.code(nt, language=None)
-                                        # Alerta de colores según el contenido
                                         if "CLOSED" in nt or "CLSD" in nt:
                                             st.error("🚫 Contiene aviso de CIERRE (Closed).")
                                         elif "U/S" in nt or "UNSERVICEABLE" in nt:
@@ -868,35 +949,110 @@ def main_app():
             st.metric("Block Fuel Sugerido", f"{block:.0f} kg")
 
     # =========================================================
-    # ESTADÍSTICAS
+    # ESTADÍSTICAS (RESTAURADAS CON GRÁFICO DE BARRAS)
     # =========================================================
     elif menu == "📊 Estadísticas":
-        st.header("📊 Dashboard")
+        st.header("📊 Dashboard de Rendimiento")
         df = leer_vuelos()
         if not df.empty:
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("📦 Vuelos", len(df))
-            k2.metric("⏱️ Horas", f"{df['Tiempo_Vuelo_Horas'].apply(parse_tiempo_horas).sum():.1f} h")
-            k3.metric("🌍 Distancia", f"{df.get('Distancia_NM', pd.Series()).sum():,.0f} NM")
-            k4.metric("✈️ Avión Fav.", df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns else "N/A")
+            if 'Landing_Rate_FPM' in df.columns:
+                df['Landing_Rate_FPM'] = pd.to_numeric(df['Landing_Rate_FPM'], errors='coerce')
+            if 'Tiempo_Vuelo_Horas' in df.columns:
+                df['Tiempo_Vuelo_Horas'] = df['Tiempo_Vuelo_Horas'].astype(str)
+            if 'Distancia_NM' in df.columns:
+                df['Distancia_NM'] = pd.to_numeric(df['Distancia_NM'], errors='coerce').fillna(0)
+
+            # Restauramos los 5 KPIs
+            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+            total_vuelos = len(df)
+            total_horas = df['Tiempo_Vuelo_Horas'].apply(parse_tiempo_horas).sum()
+            promedio_landing = df['Landing_Rate_FPM'].mean() if 'Landing_Rate_FPM' in df.columns else 0
+            total_nm = df['Distancia_NM'].sum()
+            avion_fav = df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns and not df['Modelo_Avion'].mode().empty else "N/A"
+
+            kpi1.metric("📦 Vuelos", f"{total_vuelos}")
+            kpi2.metric("⏱️ Horas", f"{total_horas:.1f} h")
+            kpi3.metric("🌍 Distancia", f"{total_nm:,.0f} NM")
+            kpi4.metric("🛬 Toque Prom.", f"{promedio_landing:.0f} fpm")
+            kpi5.metric("✈️ Avión Fav.", avion_fav)
 
             st.markdown("---")
+
+            # RESTAURADO: Gráfico de Flota Utilizada
+            if 'Modelo_Avion' in df.columns:
+                st.subheader("✈️ Flota Utilizada")
+                data_aviones = df['Modelo_Avion'].value_counts().reset_index()
+                data_aviones.columns = ['Modelo', 'Vuelos']
+                fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h',
+                                 text='Vuelos', color='Vuelos')
+                fig_bar.update_layout(showlegend=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("📋 Historial Completo")
+
+            col_exp1, col_exp2 = st.columns([3, 1])
+            with col_exp2:
+                if st.button("📥 Exportar CSV"):
+                    csv = df.to_csv(index=False).encode('utf-8')
+                    st.download_button("Descargar CSV", csv, "vuelos.csv", "text/csv")
+
             with st.expander("Ver / Buscar en historial", expanded=True):
-                s_txt = st.text_input("🔍 Buscar")
-                df_disp = df.copy()
-                if s_txt: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.lower().str.contains(s_txt.lower())).any(axis=1)]
                 
-                for i, r in df_disp.iterrows():
-                    cols = st.columns([2, 2, 2, 2, 1, 1])
-                    cols[0].write(f"{r.get('Origen','?')} → {r.get('Destino','?')}")
-                    cols[1].write(r.get('Fecha',''))
-                    cols[2].write(r.get('Aerolinea',''))
-                    cols[3].write(r.get('Modelo_Avion',''))
-                    cols[4].write(r.get('Tiempo_Vuelo_Horas',''))
-                    if cols[5].button("🗑️", key=f"d_{i}"):
-                        eliminar_vuelo_gs(i)
-                        st.rerun()
-        else: st.info("No hay datos.")
+                f1, f2, f3 = st.columns(3)
+                search_text = f1.text_input("🔍 Buscar (ICAO, Fecha...)", "")
+                
+                aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
+                filtro_aero_hist = f2.selectbox("Aerolínea", aeros)
+                
+                aviones = ["Todos"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["Todos"]
+                filtro_avion_hist = f3.selectbox("Avión", aviones)
+                
+                st.divider()
+
+                df_display = df.copy()
+                
+                if search_text:
+                    search_text_lower = search_text.lower()
+                    mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_text_lower)).any(axis=1)
+                    df_display = df_display[mask]
+                
+                if filtro_aero_hist != "Todas":
+                    df_display = df_display[df_display['Aerolinea'] == filtro_aero_hist]
+                    
+                if filtro_avion_hist != "Todos":
+                    df_display = df_display[df_display['Modelo_Avion'] == filtro_avion_hist]
+
+                if df_display.empty:
+                    st.info("No se encontraron vuelos que coincidan con la búsqueda.")
+                else:
+                    for i, row in df_display.iterrows():
+                        with st.container():
+                            cols = st.columns([2, 2, 2, 2, 1, 1])
+                            cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
+                            cols[1].write(f"{row.get('Fecha','')}")
+                            cols[2].write(f"{row.get('Aerolinea','')}")
+                            cols[3].write(f"{row.get('Modelo_Avion','')}")
+                            cols[4].write(f"{row.get('Tiempo_Vuelo_Horas','')}h")
+                            if cols[5].button("🗑️", key=f"del_{i}", help="Eliminar este vuelo"):
+                                st.session_state[f"confirm_del_{i}"] = True
+
+                            if st.session_state.get(f"confirm_del_{i}", False):
+                                st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Fecha','')}?")
+                                c_yes, c_no = st.columns(2)
+                                if c_yes.button("✅ Sí, eliminar", key=f"yes_{i}"):
+                                    with st.spinner("Eliminando..."):
+                                        ok = eliminar_vuelo_gs(i)
+                                    if ok:
+                                        st.success("Vuelo eliminado.")
+                                        st.session_state.pop(f"confirm_del_{i}", None)
+                                        st.rerun()
+                                if c_no.button("❌ Cancelar", key=f"no_{i}"):
+                                    st.session_state.pop(f"confirm_del_{i}", None)
+                                    st.rerun()
+                        st.divider()
+        else:
+            st.info("Registra tu primer vuelo para ver las estadísticas.")
 
     # =========================================================
     # CONFIGURACIÓN
