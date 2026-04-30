@@ -1009,7 +1009,7 @@ def main_app():
                         st.session_state["aerolinea_seleccionada"] = v["Aerolinea"]
                         st.success(f"✅ Vuelo {v['Callsign']} cargado. Andá a '📋 Registro de Vuelo'.")
 
-        # ── 2. PESTAÑA AÑADIR ──
+# ── 2. PESTAÑA AÑADIR ──
         with tab_add:
             st.subheader("➕ Guardar nuevo vuelo en la base")
             with st.form("add_ruta_form"):
@@ -1023,7 +1023,8 @@ def main_app():
                 
                 c5, c6 = st.columns(2)
                 avion = c5.selectbox("Modelo de Avión", MODELOS_AVION)
-                cat = c6.selectbox("Categoría", ["Corto radio (< 2h)", "Medio radio (2-6h)", "Largo radio (> 6h)", "Desafiante / Especial"])
+                # Reemplazamos el selectbox por un toggle opcional
+                es_desafiante = c6.toggle("🌟 Marcar como ruta Desafiante/Especial", help="Activalo solo si es una ruta escénica o peligrosa. Si no, se categorizará automáticamente por tiempo.")
 
                 submitted_add = st.form_submit_button("💾 Guardar en Base de Datos")
 
@@ -1038,17 +1039,31 @@ def main_app():
                         c_d = obtener_coords(destino)
                         dist_nm = 0
                         dur_str = "Desconocido"
+                        cat_calculada = "Desconocida"
+
                         if c_o and c_d:
                             dist_nm = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
                             horas_est = dist_nm / 480
                             h = int(horas_est)
                             m = int((horas_est - h) * 60)
                             dur_str = f"~{h}h {m:02d}m"
+                            
+                            # Lógica de Categorización Automática
+                            if es_desafiante:
+                                cat_calculada = "Desafiante / Especial"
+                            elif horas_est < 2.0:
+                                cat_calculada = "Corto radio (< 2h)"
+                            elif horas_est <= 6.0:
+                                cat_calculada = "Medio radio (2-6h)"
+                            else:
+                                cat_calculada = "Largo radio (> 6h)"
+                        else:
+                            st.warning("⚠️ No se encontraron las coordenadas de uno de los aeropuertos. Revisá los códigos ICAO.")
                         
-                        row = [origen, destino, aerolinea, callsign, avion, cat, dist_nm, dur_str]
+                        row = [origen, destino, aerolinea, callsign, avion, cat_calculada, dist_nm, dur_str]
                         with st.spinner("Guardando ruta..."):
                             if guardar_ruta_gs(row):
-                                st.success(f"✅ Ruta {origen}-{destino} guardada con éxito (Distancia auto-calculada: {dist_nm} NM).")
+                                st.success(f"✅ Ruta {origen}-{destino} guardada automáticamente como **{cat_calculada}**.")
                             else:
                                 st.error("Error al guardar en Google Sheets.")
 
@@ -1060,7 +1075,6 @@ def main_app():
                 st.subheader("🛠️ Editar o Eliminar Rutas")
                 for i, row in df_rutas.iterrows():
                     with st.expander(f"✈️ {row['Aerolinea']} {row['Callsign']} | {row['Origen']} ➡️ {row['Destino']}"):
-                        # Formulario de edición para cada fila
                         with st.form(f"edit_form_{i}"):
                             ec1, ec2, ec3 = st.columns(3)
                             n_orig = ec1.text_input("Origen", value=row['Origen'], key=f"o_{i}").upper()
@@ -1070,7 +1084,7 @@ def main_app():
                             ec4, ec5, ec6 = st.columns(3)
                             n_aero = ec4.text_input("Aerolínea", value=row['Aerolinea'], key=f"a_{i}")
                             n_avion = ec5.text_input("Avión", value=row['Avion'], key=f"av_{i}")
-                            n_cat = ec6.text_input("Categoría", value=row['Categoria'], key=f"cat_{i}")
+                            n_cat = ec6.text_input("Categoría", value=row['Categoria'], key=f"cat_{i}", help="Podés forzar una categoría escribiéndola aquí.")
                             
                             c_btn1, c_btn2 = st.columns(2)
                             guardar_cambios = c_btn1.form_submit_button("💾 Actualizar Ruta")
@@ -1088,9 +1102,15 @@ def main_app():
                                         h_est = dist_nm / 480
                                         dur_str = f"~{int(h_est)}h {int((h_est - int(h_est)) * 60):02d}m"
 
+                                        # Actualizar también la categoría auto si cambia la distancia (y no era una ruta especial)
+                                        if n_cat != "Desafiante / Especial":
+                                            if h_est < 2.0: n_cat = "Corto radio (< 2h)"
+                                            elif h_est <= 6.0: n_cat = "Medio radio (2-6h)"
+                                            else: n_cat = "Largo radio (> 6h)"
+
                                 new_row = [n_orig, n_dest, n_aero, n_call, n_avion, n_cat, dist_nm, dur_str]
                                 if actualizar_ruta_gs(i, new_row):
-                                    st.success("¡Actualizado!")
+                                    st.success("¡Ruta actualizada!")
                                     st.rerun()
                                 else:
                                     st.error("Error al actualizar.")
