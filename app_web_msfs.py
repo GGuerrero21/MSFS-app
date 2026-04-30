@@ -1043,7 +1043,9 @@ def main_app():
 
                         if c_o and c_d:
                             dist_nm = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
-                            horas_est = dist_nm / 480
+                            
+                            # NUEVA FÓRMULA DE TIEMPO: 430kt promedio + 36 mins (0.6h) de rodaje/maniobras
+                            horas_est = (dist_nm / 430) + 0.6
                             h = int(horas_est)
                             m = int((horas_est - h) * 60)
                             dur_str = f"~{h}h {m:02d}m"
@@ -1099,10 +1101,12 @@ def main_app():
                                     cd = obtener_coords(n_dest)
                                     if co and cd:
                                         dist_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1]))
-                                        h_est = dist_nm / 480
+                                        
+                                        # NUEVA FÓRMULA DE TIEMPO
+                                        h_est = (dist_nm / 430) + 0.6
                                         dur_str = f"~{int(h_est)}h {int((h_est - int(h_est)) * 60):02d}m"
 
-                                        # Actualizar también la categoría auto si cambia la distancia (y no era una ruta especial)
+                                        # Actualizar también la categoría auto si cambia la distancia
                                         if n_cat != "Desafiante / Especial":
                                             if h_est < 2.0: n_cat = "Corto radio (< 2h)"
                                             elif h_est <= 6.0: n_cat = "Medio radio (2-6h)"
