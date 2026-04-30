@@ -778,13 +778,87 @@ def main_app():
                 st.markdown("- **BECMG**: Cambio gradual permanente.\n- **TEMPO**: Cambio temporal.\n- **FM**: Cambio rápido desde esa hora.\n- **PROB30/40**: Probabilidad.")
 
         # RESTAURADO: Pestaña de referencias completa
+# ---- TAB 3: REFERENCIA RÁPIDA ----
         with tab3:
-            st.subheader("🎓 Referencia rápida METAR/TAF")
-            c_ref1, c_ref2 = st.columns(2)
-            with c_ref1:
-                st.markdown("**Nubes:**\n- `FEW` (Escasas) 1-2/8\n- `SCT` (Dispersas) 3-4/8\n- `BKN` (Fragmentadas - TECHO) 5-7/8\n- `OVC` (Cubierto - TECHO) 8/8")
-            with c_ref2:
-                st.markdown("**Fenómenos:**\n- `RA` (Lluvia) / `SN` (Nieve)\n- `FG` (Niebla) / `BR` (Neblina)\n- `TS` (Tormenta) / `FZRA` (Lluvia Engelante)")
+            st.subheader("🎓 Diccionario Aeronáutico METAR/TAF")
+            st.caption("Guía completa para interpretar los reportes meteorológicos como un profesional.")
+            
+            col_g1, col_g2 = st.columns(2)
+            
+            with col_g1:
+                with st.expander("☁️ Nubes y Cobertura", expanded=True):
+                    st.markdown("""
+                    | Código | Cobertura | Significado | ¿Es Techo? |
+                    |:---|:---|:---|:---|
+                    | **FEW** | 1-2 octavas | Escasas | ❌ No |
+                    | **SCT** | 3-4 octavas | Dispersas | ❌ No |
+                    | **BKN** | 5-7 octavas | Fragmentadas | **✅ Sí** |
+                    | **OVC** | 8/8 octavas | Cubierto total | **✅ Sí** |
+                    | **VV** | Vis. Vertical | Cielo oscurecido (niebla/nieve) | **✅ Sí** |
+                    | **NSC** | 0 octavas | Sin nubes significativas | ❌ No |
+                    
+                    *Nota: Para aproximaciones por instrumentos (IFR), se considera "techo de nubes" a la capa más baja reportada como BKN u OVC.*
+                    """)
+                    
+                with st.expander("💨 Viento y Ráfagas", expanded=True):
+                    st.markdown("""
+                    | Formato | Ejemplo | Significado |
+                    |:---|:---|:---|
+                    | **dddffKT** | `27015KT` | Viento de 270° a 15 nudos |
+                    | **dddffGggKT**| `18020G35KT`| Viento 180°/20 nudos, **ráfagas de 35 nudos** |
+                    | **VRB** | `VRB03KT` | Dirección variable (suele ser viento débil) |
+                    | **00000KT** | `00000KT` | Viento en calma absoluta |
+                    | **...V...** | `28015KT 250V310`| 15 nudos, variando entre 250° y 310° |
+                    """)
+
+                with st.expander("👁️ Visibilidad y Pista (RVR)"):
+                    st.markdown("""
+                    | Código | Significado |
+                    |:---|:---|
+                    | **9999** | Visibilidad de 10 km o más (óptima) |
+                    | **0800** | Visibilidad de 800 metros |
+                    | **CAVOK** | Vis > 10km, sin nubes bajo 5000ft, sin clima significativo |
+                    | **R36/1200** | **RVR**: Pista 36 tiene visibilidad visual de 1200m |
+                    """)
+
+            with col_g2:
+                with st.expander("⛈️ Fenómenos Meteorológicos", expanded=True):
+                    st.markdown("""
+                    **Intensidad y Proximidad:**
+                    *   `-` Ligero (Ej: `-RA` lluvia ligera)
+                    *   `+` Fuerte (Ej: `+TSRA` tormenta fuerte con lluvia)
+                    *   `VC` En vecindad (a unos 8km del aeropuerto)
+                    *   `RE` Reciente (Ej: `RERA` lluvia reciente, ya paró)
+
+                    **Tipos de Precipitaciones:**
+                    | Código | Fenómeno | Código | Fenómeno |
+                    |:---|:---|:---|:---|
+                    | **RA** | Lluvia (Rain) | **SN** | Nieve (Snow) |
+                    | **DZ** | Llovizna (Drizzle) | **GR** | Granizo (Hail) |
+                    | **SH** | Chubasco (Shower) | **TS** | Tormenta Eléctrica |
+
+                    **Oscurecimiento (Visibilidad):**
+                    | Código | Fenómeno | Código | Fenómeno |
+                    |:---|:---|:---|:---|
+                    | **FG** | Niebla (< 1km) | **BR** | Neblina (1-5km) |
+                    | **HZ** | Bruma seca | **FU** | Humo (Smoke) |
+                    
+                    **Peligros Críticos para el Vuelo:**
+                    *   **FZRA / FZFG:** Lluvia o niebla **Engelante** (forma hielo en las alas de inmediato).
+                    *   **FC:** Tromba marina o tornado cerca de la estación.
+                    """)
+                    
+                with st.expander("🧭 Presión y Tendencias"):
+                    st.markdown("""
+                    **Presión Altimétrica (QNH):**
+                    *   `Q1013` = Presión en hectopascales (hPa). Estándar = 1013.
+                    *   `A2992` = Presión en pulgadas de mercurio (inHg), usado en EE.UU. Estándar = 29.92.
+
+                    **Tendencias (Próximas 2 horas):**
+                    *   **NOSIG**: Sin cambios significativos esperados (No Significant Change).
+                    *   **BECMG**: Cambio gradual permanente hacia las nuevas condiciones.
+                    *   **TEMPO**: Fluctuaciones temporales que duran menos de 1 hora.
+                    """)
 
         with tab4:
             st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
