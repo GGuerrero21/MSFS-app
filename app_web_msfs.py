@@ -1132,7 +1132,7 @@ def main_app():
                                     st.rerun()
                                 else:
                                     st.error("Error al eliminar.")
-    # =========================================================
+  # =========================================================
     # 6. ESTADÍSTICAS
     # =========================================================
     elif menu == "📊 Estadísticas":
@@ -1162,44 +1162,17 @@ def main_app():
 
             st.markdown("---")
 
-            # Gráfico temporal de horas por mes
-            if 'Fecha' in df.columns:
-                try:
-                    df['Fecha_dt'] = pd.to_datetime(df['Fecha'], errors='coerce')
-                    df_tiempo = df.dropna(subset=['Fecha_dt']).copy()
-                    df_tiempo['Mes'] = df_tiempo['Fecha_dt'].dt.to_period('M').astype(str)
-                    df_mensual = df_tiempo.groupby('Mes').agg(
-                        Horas=('Tiempo_Vuelo_Horas', 'sum'),
-                        Vuelos=('Fecha', 'count')
-                    ).reset_index()
-                    if not df_mensual.empty:
-                        st.subheader("📈 Actividad por Mes")
-                        fig_line = px.bar(df_mensual, x='Mes', y='Horas', text='Vuelos',
-                                          title="Horas voladas por mes (número = cantidad de vuelos)")
-                        fig_line.update_traces(textposition='outside')
-                        st.plotly_chart(fig_line, use_container_width=True)
-                except Exception:
-                    pass
+            # Mantenemos un diseño limpio solo con el histograma de flota
+            if 'Modelo_Avion' in df.columns:
+                st.subheader("✈️ Flota Utilizada")
+                data_aviones = df['Modelo_Avion'].value_counts().reset_index()
+                data_aviones.columns = ['Modelo', 'Vuelos']
+                fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h',
+                                 text='Vuelos', color='Vuelos')
+                fig_bar.update_layout(showlegend=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                if 'Modelo_Avion' in df.columns:
-                    st.subheader("✈️ Flota Utilizada")
-                    data_aviones = df['Modelo_Avion'].value_counts().reset_index()
-                    data_aviones.columns = ['Modelo', 'Vuelos']
-                    fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h',
-                                     text='Vuelos', color='Vuelos', title="Vuelos por Modelo")
-                    st.plotly_chart(fig_bar, use_container_width=True)
-            with c2:
-                if 'Aerolinea' in df.columns:
-                    st.subheader("🌍 Aerolíneas")
-                    data_aero = df['Aerolinea'].value_counts().reset_index()
-                    data_aero.columns = ['Aerolinea', 'Vuelos']
-                    fig_pie = px.pie(data_aero, values='Vuelos', names='Aerolinea',
-                                     title="Distribución por Aerolínea", hole=0.4)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-
-            # Historial con edición/eliminación
+            # Historial con edición/eliminación y Búsqueda
             st.markdown("---")
             st.subheader("📋 Historial Completo")
 
@@ -1209,37 +1182,66 @@ def main_app():
                     csv = df.to_csv(index=False).encode('utf-8')
                     st.download_button("Descargar CSV", csv, "vuelos.csv", "text/csv")
 
-            # Tabla con opción de eliminar
-            with st.expander("Ver / Editar historial", expanded=True):
-                df_display = df.copy()
-                for i, row in df_display.iterrows():
-                    with st.container():
-                        cols = st.columns([2, 2, 2, 2, 1, 1])
-                        cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
-                        cols[1].write(f"{row.get('Fecha','')}")
-                        cols[2].write(f"{row.get('Aerolinea','')}")
-                        cols[3].write(f"{row.get('Modelo_Avion','')}")
-                        cols[4].write(f"{float(row.get('Tiempo_Vuelo_Horas',0)):.1f}h")
-                        if cols[5].button("🗑️", key=f"del_{i}", help="Eliminar este vuelo"):
-                            st.session_state[f"confirm_del_{i}"] = True
+            # Tabla interactiva con opción de eliminar y filtrar
+            with st.expander("Ver / Buscar en historial", expanded=True):
+                
+                # --- Buscador y Filtros ---
+                f1, f2, f3 = st.columns(3)
+                search_text = f1.text_input("🔍 Buscar (ICAO, Fecha...)", "")
+                
+                aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
+                filtro_aero_hist = f2.selectbox("Aerolínea", aeros)
+                
+                aviones = ["Todos"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["Todos"]
+                filtro_avion_hist = f3.selectbox("Avión", aviones)
+                
+                st.divider()
 
-                        if st.session_state.get(f"confirm_del_{i}", False):
-                            st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Fecha','')}?")
-                            c_yes, c_no = st.columns(2)
-                            if c_yes.button("✅ Sí, eliminar", key=f"yes_{i}"):
-                                with st.spinner("Eliminando..."):
-                                    ok = eliminar_vuelo_gs(i)
-                                if ok:
-                                    st.success("Vuelo eliminado.")
+                df_display = df.copy()
+                
+                # --- Lógica de filtrado ---
+                if search_text:
+                    search_text_lower = search_text.lower()
+                    mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_text_lower)).any(axis=1)
+                    df_display = df_display[mask]
+                
+                if filtro_aero_hist != "Todas":
+                    df_display = df_display[df_display['Aerolinea'] == filtro_aero_hist]
+                    
+                if filtro_avion_hist != "Todos":
+                    df_display = df_display[df_display['Modelo_Avion'] == filtro_avion_hist]
+
+                # --- Mostrar resultados ---
+                if df_display.empty:
+                    st.info("No se encontraron vuelos que coincidan con la búsqueda.")
+                else:
+                    for i, row in df_display.iterrows():
+                        with st.container():
+                            cols = st.columns([2, 2, 2, 2, 1, 1])
+                            cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
+                            cols[1].write(f"{row.get('Fecha','')}")
+                            cols[2].write(f"{row.get('Aerolinea','')}")
+                            cols[3].write(f"{row.get('Modelo_Avion','')}")
+                            cols[4].write(f"{float(row.get('Tiempo_Vuelo_Horas',0)):.1f}h")
+                            if cols[5].button("🗑️", key=f"del_{i}", help="Eliminar este vuelo"):
+                                st.session_state[f"confirm_del_{i}"] = True
+
+                            if st.session_state.get(f"confirm_del_{i}", False):
+                                st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Fecha','')}?")
+                                c_yes, c_no = st.columns(2)
+                                if c_yes.button("✅ Sí, eliminar", key=f"yes_{i}"):
+                                    with st.spinner("Eliminando..."):
+                                        ok = eliminar_vuelo_gs(i)
+                                    if ok:
+                                        st.success("Vuelo eliminado.")
+                                        st.session_state.pop(f"confirm_del_{i}", None)
+                                        st.rerun()
+                                if c_no.button("❌ Cancelar", key=f"no_{i}"):
                                     st.session_state.pop(f"confirm_del_{i}", None)
                                     st.rerun()
-                            if c_no.button("❌ Cancelar", key=f"no_{i}"):
-                                st.session_state.pop(f"confirm_del_{i}", None)
-                                st.rerun()
-                    st.divider()
+                        st.divider()
         else:
             st.info("Registra tu primer vuelo para ver las estadísticas.")
-
 
 if __name__ == "__main__":
     main_app()
