@@ -419,8 +419,8 @@ def obtener_notams(icao_code, api_key):
     """Obtiene los NOTAMs reales usando AVWX API (Súper estable)."""
     if not icao_code or len(icao_code) != 4: return None, "❌ Código ICAO inválido."
     
-    url = f"https://api.avwx.rest/api/notam/{icao_code.upper()}"
-    # AVWX requiere que la clave se pase con la palabra 'Token' adelante
+    # 🛠️ CORRECCIÓN: La URL es avwx.rest (sin el "api." al principio)
+    url = f"https://avwx.rest/api/notam/{icao_code.upper()}"
     headers = {"Authorization": f"Token {api_key}"}
     
     try:
