@@ -256,6 +256,28 @@ def eliminar_item_config(columna, valor):
 
 # --- 3. FUNCIONES LÓGICAS ---
 
+def obtener_notams(icao_code, api_key):
+    """Obtiene los NOTAMs reales activos para un aeropuerto usando CheckWX API."""
+    if not icao_code or len(icao_code) != 4:
+        return None, "❌ Código ICAO inválido."
+    
+    url = f"https://api.checkwx.com/notam/{icao_code.upper()}"
+    headers = {"X-API-Key": api_key}
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("results") == 0:
+                return [], f"No hay NOTAMs activos para {icao_code.upper()} en este momento (o el aeropuerto no los reporta)."
+            return data.get("data", []), None
+        elif r.status_code == 401:
+            return None, "❌ API Key de CheckWX inválida o no ingresada."
+        else:
+            return None, f"Error del servidor (Cod: {r.status_code})."
+    except Exception as e:
+        return None, f"Error de conexión: {str(e)}"
+
 def get_geodesic_path(lat1, lon1, lat2, lon2, n_points=100):
     lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
     dlon = lon2 - lon1
@@ -899,19 +921,21 @@ def main_app():
         else:
             st.info("No hay vuelos registrados para mostrar en el mapa.")
 
-    # =========================================================
-    # 4. CLIMA
+# =========================================================
+    # 4. CLIMA Y NOTAMS
     # =========================================================
     elif menu == "☁️ Clima (METAR/TAF)":
-        st.header("🌤️ Centro Meteorológico")
-        tab1, tab2, tab3 = st.tabs(["🔍 Buscar & Decodificar", "📡 TAF Comentado", "🎓 Referencia Rápida"])
+        st.header("🌤️ Centro Meteorológico y Alertas")
+        
+        # Agregamos una cuarta pestaña para los NOTAMs
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Buscar Clima", "📡 TAF Comentado", "🎓 Referencia Rápida", "⚠️ NOTAMs Reales"])
 
         # ---- TAB 1: BUSCAR + DECODIFICAR ----
         with tab1:
             with st.form("metar_search"):
                 col_s1, col_s2 = st.columns([3, 1])
                 icao_input = col_s1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL, EGLL, KJFK")
-                buscar = col_s2.form_submit_button("Buscar 🔎")
+                buscar = col_s2.form_submit_button("Buscar Clima 🔎")
 
             if buscar and icao_input:
                 icao_q = icao_input.strip().upper()
@@ -920,10 +944,9 @@ def main_app():
                     st.error(err)
                 else:
                     metar_raw, taf_raw = datos
-                    # METAR raw
                     st.subheader(f"METAR — {icao_q}")
                     st.code(metar_raw, language=None)
-                    # Decodificado
+                    
                     if metar_raw not in ("No disponible", "Error conexión"):
                         dec = decodificar_metar(metar_raw)
                         if dec.get('alerta_niebla'):
@@ -947,31 +970,16 @@ def main_app():
                         if dec.get('tendencia'):
                             st.info(f"**Tendencia:** `{dec['tendencia']}`")
                     st.divider()
-                    # TAF
+                    
                     if taf_raw not in ("No disponible", "Error conexión"):
                         st.subheader(f"TAF — {icao_q}")
-                        taf_fmt = taf_raw.strip() \
-                            .replace('BECMG', '\n  BECMG') \
-                            .replace('TEMPO', '\n  TEMPO') \
-                            .replace(' FM',   '\n  FM') \
-                            .replace('PROB',  '\n  PROB')
+                        taf_fmt = taf_raw.strip().replace('BECMG', '\n  BECMG').replace('TEMPO', '\n  TEMPO').replace(' FM', '\n  FM').replace('PROB', '\n  PROB')
                         st.code(taf_fmt, language=None)
-                        kws = []
-                        if 'BECMG' in taf_raw: kws.append("**BECMG** = cambio gradual permanente")
-                        if 'TEMPO' in taf_raw: kws.append("**TEMPO** = cambio temporal")
-                        if 'FM'    in taf_raw: kws.append("**FM** = cambio rápido desde esa hora")
-                        if 'PROB'  in taf_raw: kws.append("**PROB** = probabilidad de cambio")
-                        if 'TS'    in taf_raw: kws.append("**TS** = tormenta eléctrica")
-                        if 'NSW'   in taf_raw: kws.append("**NSW** = fin del mal tiempo")
-                        if kws:
-                            with st.expander("📖 Leyenda de este TAF"):
-                                for k in kws: st.markdown(f"- {k}")
                     else:
                         st.info("TAF no disponible para este aeropuerto.")
             elif buscar:
                 st.warning("Ingresá un código ICAO primero.")
 
-            # Decodificador manual
             st.divider()
             st.subheader("🔧 Decodificador manual")
             st.caption("Pegá cualquier METAR para decodificarlo sin conexión a red.")
@@ -979,26 +987,18 @@ def main_app():
             if metar_manual.strip():
                 dec = decodificar_metar(metar_manual.strip())
                 if dec:
-                    if dec.get('alerta_niebla'):
-                        st.warning("⚠️ Diferencia Temp/Rocío ≤ 2°C — posible niebla.")
                     campos_m = [
                         ("📍 Estación",    dec.get('estacion',    '—')),
-                        ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
                         ("💨 Viento",      dec.get('viento',      '—')),
                         ("👁️ Visibilidad", dec.get('visibilidad', '—')),
                         ("🌡️ Temperatura", dec.get('temperatura', '—')),
-                        ("💧 Rocío",       dec.get('rocio',       '—')),
-                        ("🧭 QNH",         dec.get('qnh',         '—')),
                         ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
+                        ("🧭 QNH",         dec.get('qnh',         '—')),
                     ]
-                    if dec.get('fenomenos'):
-                        campos_m.insert(4, ("⛈️ Fenómenos", dec['fenomenos']))
-                    for i in range(0, len(campos_m), 4):
-                        row_c = st.columns(4)
-                        for j, (lbl, val) in enumerate(campos_m[i:i+4]):
+                    for i in range(0, len(campos_m), 3):
+                        row_c = st.columns(3)
+                        for j, (lbl, val) in enumerate(campos_m[i:i+3]):
                             row_c[j].metric(lbl, val)
-                    if dec.get('tendencia'):
-                        st.info(f"**Tendencia:** `{dec['tendencia']}`")
 
         # ---- TAB 2: TAF COMENTADO ----
         with tab2:
@@ -1010,162 +1010,55 @@ def main_app():
   PROB30 TEMPO 1606/1612 0800 FG BKN002
   FM161200 29012KT 9999 FEW025""", language=None)
             with st.expander("🔍 Línea por línea", expanded=True):
-                st.markdown("""
-| Fragmento | Significado |
-|:---|:---|
-| `TAF EGLL` | Pronóstico de Londres Heathrow |
-| `151700Z` | Emitido el día 15 a las 17:00 UTC |
-| `1518/1624` | Válido desde día 15/18:00 hasta día 16/24:00 UTC |
-| `27015KT 9999 SCT030` | Base: viento 270°/15kt, vis >10km, nubes dispersas 3000ft |
-| `BECMG 1520/1522 27008KT` | Entre 20:00–22:00 el viento amainará a 8kt permanentemente |
-| `TEMPO 1600/1606 4000 RADZ BKN008` | Madrugada del 16: vis 4km con llovizna, techo 800ft ⚠️ |
-| `PROB30 TEMPO 1606/1612` | 30% de probabilidad de niebla con techo en 200ft |
-| `FM161200 29012KT 9999 FEW025` | Desde mediodía del 16: mejora general |
-""")
-            with st.expander("⚠️ Alertas que buscar siempre"):
-                st.markdown("""
-- **BKN/OVC < 010** → techo bajo 1000ft, posible aproximación por instrumentos
-- **Visibilidad < 0800** → mínimos de muchos procedimientos ILS
-- **TS** en cualquier parte → tormentas, planear alternado
-- **PROB30/40 + TEMPO** → clima inestable, monitorear en ruta
-- **FZRA / FZFG** → lluvia o niebla engelante, riesgo de hielo
-""")
+                st.markdown("- **BECMG**: Cambio gradual permanente.\n- **TEMPO**: Cambio temporal.\n- **FM**: Cambio rápido desde esa hora.\n- **PROB30/40**: Probabilidad.")
 
         # ---- TAB 3: REFERENCIA RÁPIDA ----
         with tab3:
             st.subheader("🎓 Referencia rápida METAR/TAF")
-            col_g1, col_g2 = st.columns(2)
-            with col_g1:
-                with st.expander("💨 Viento", expanded=True):
-                    st.markdown("""
-| Código | Significado |
-|:---|:---|
-| `27015KT` | 270° a 15 kt |
-| `27015G25KT` | 270°/15kt, ráfagas 25kt |
-| `VRB05KT` | Variable, 5 kt |
-| `00000KT` | Calma |
-""")
-                with st.expander("☁️ Nubes"):
-                    st.markdown("""
-| Código | Cobertura | ¿Techo? |
-|:---|:---|:---|
-| `FEW030` | 1–2/8 a 3000ft | No |
-| `SCT030` | 3–4/8 a 3000ft | No |
-| `BKN030` | 5–7/8 a 3000ft | **Sí** |
-| `OVC030` | 8/8 a 3000ft | **Sí** |
-| `VV004` | Niebla total, vis vertical 400ft | **Sí** |
-""")
-                with st.expander("🧭 Presión"):
-                    st.markdown("""
-- `Q1013` → hPa (Europa, Latinoamérica)
-- `A2992` → inHg (EE.UU.)
-- **1013.25 hPa = 29.92 inHg** (ISA estándar)
-""")
-            with col_g2:
-                with st.expander("⛈️ Fenómenos", expanded=True):
-                    st.markdown("""
-| Código | Significado |
-|:---|:---|
-| `RA / -RA / +RA` | Lluvia / ligera / fuerte |
-| `SN` | Nieve |
-| `DZ` | Llovizna |
-| `GR` | Granizo |
-| `FG` | Niebla (vis < 1km) |
-| `BR` | Neblina (1–5km) |
-| `HZ` | Bruma seca |
-| `TS / TSRA` | Tormenta / con lluvia |
-| `FZRA / FZFG` | Lluvia/niebla engelante |
-| `SH` | Chubasco (ej: `SHRA`) |
-| `VC` | En vecindad |
-""")
-                with st.expander("✅ Especiales"):
-                    st.markdown("""
-- **CAVOK** = Vis >10km + sin nubes <5000ft + sin precipitación
-- **NSC** = No Significant Cloud
-- **SKC/CLR** = Cielo despejado
-- **NOSIG** = Sin cambios en 2h
-- **NSW** = Cesó el mal tiempo
-- **SPECI** = METAR especial por cambio brusco
-""")
+            c_ref1, c_ref2 = st.columns(2)
+            with c_ref1:
+                st.markdown("**Nubes:**\n- `FEW` (Escasas) 1-2/8\n- `SCT` (Dispersas) 3-4/8\n- `BKN` (Fragmentadas - TECHO) 5-7/8\n- `OVC` (Cubierto - TECHO) 8/8")
+            with c_ref2:
+                st.markdown("**Fenómenos:**\n- `RA` (Lluvia) / `SN` (Nieve)\n- `FG` (Niebla) / `BR` (Neblina)\n- `TS` (Tormenta) / `FZRA` (Lluvia Engelante)")
 
-# =========================================================
-    # 5. VUELOS ALEATORIOS (BASE DE DATOS PROPIA)
-    # =========================================================
-    elif menu == "🎲 Vuelos Aleatorios":
-        import random
-        st.header("🎲 Centro de Rutas")
-        st.caption("Tu base de datos personal de vuelos reales para simular.")
-
-        tab_gen, tab_add, tab_admin = st.tabs(["🎲 Generar Vuelo", "➕ Añadir a la Base", "✏️ Administrar Base"])
-        df_rutas = leer_rutas_aleatorias()
-
-        # ── 1. PESTAÑA GENERAR ──
-        with tab_gen:
-            if df_rutas.empty:
-                st.info("💡 Tu base de datos está vacía. Andá a la pestaña 'Añadir a la Base' para guardar tus primeros vuelos.")
-            else:
-                col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
-                categorias = ["Cualquiera"] + sorted(df_rutas["Categoria"].unique().tolist())
-                aviones = ["Cualquier avión"] + sorted(df_rutas["Avion"].unique().tolist())
+        # ---- TAB 4: NOTAMS REALES ----
+        with tab4:
+            st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
+            st.caption("Los NOTAMs contienen información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
+            
+            # Formulario para pedir los NOTAMs
+            with st.form("form_notam"):
+                c_n1, c_n2 = st.columns([1, 2])
+                icao_notam = c_n1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SAEZ")
+                api_key_checkwx = c_n2.text_input("🔑 CheckWX API Key", type="password", help="Conseguila gratis en checkwxapi.com")
                 
-                with col_f1: cat_sel = st.selectbox("Categoría", categorias)
-                with col_f2: avion_sel = st.selectbox("Avión", aviones)
-                with col_f3:
-                    st.write("")
-                    st.write("")
-                    btn_gen = st.button("🎲 Sortear", use_container_width=True)
+                btn_notam = st.form_submit_button("📡 Descargar NOTAMs")
 
-                if btn_gen or "vuelo_sorteado" not in st.session_state:
-                    pool = df_rutas.copy()
-                    if cat_sel != "Cualquiera": pool = pool[pool["Categoria"] == cat_sel]
-                    if avion_sel != "Cualquier avión": pool = pool[pool["Avion"] == avion_sel]
-                    
-                    if not pool.empty:
-                        # Selecciona una fila al azar y la convierte en diccionario
-                        st.session_state["vuelo_sorteado"] = pool.sample(1).iloc[0].to_dict()
-                    else:
-                        st.warning("No hay vuelos guardados que coincidan con esos filtros.")
-                        st.session_state["vuelo_sorteado"] = None
-
-                v = st.session_state.get("vuelo_sorteado")
-                if v:
-                    st.divider()
-                    c1, c2 = st.columns([3, 2])
-                    with c1:
-                        st.markdown(f"## 🛫 {v['Origen']}  →  🛬 {v['Destino']}")
+            if btn_notam:
+                if not api_key_checkwx:
+                    st.warning("Para ver los NOTAMs necesitas ingresar tu API Key gratuita de CheckWX.")
+                elif not icao_notam:
+                    st.warning("Ingresá un código ICAO.")
+                else:
+                    with st.spinner(f"Descargando NOTAMs oficiales para {icao_notam.upper()}..."):
+                        notams, error = obtener_notams(icao_notam, api_key_checkwx)
                         
-                        # Usamos st.metric para poner la Aerolínea como "etiqueta" y el Callsign gigante como "valor"
-                        st.metric(v['Aerolinea'], f"✈️ {v['Callsign']}") 
-                        
-                        # (Eliminamos la línea de st.caption de la categoría)
-                        
-                    with c2:
-                        st.metric("✈️ Avión", v['Avion'])
-                        st.metric("📏 Distancia / Tiempo", f"{v['Distancia_NM']} NM | {v['Duracion_Est']}")
-
-                    # Cargar al registro
-                    st.divider()
-
-                    # Cargar al registro
-                    st.divider()
-                    if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
-                        # Extraemos horas del texto de duracion (ej: "~3h 15m")
-                        horas_float = 0.0
-                        if "h" in str(v['Duracion_Est']):
-                            try:
-                                h_str = v['Duracion_Est'].split("h")[0].replace("~", "").strip()
-                                m_str = v['Duracion_Est'].split("h")[1].replace("m", "").strip()
-                                horas_float = float(h_str) + (float(m_str)/60)
-                            except: pass
-
-                        st.session_state.form_data = {
-                            "origen": v["Origen"], "destino": v["Destino"], "ruta": "",
-                            "no_vuelo": v["Callsign"], "tiempo": round(horas_float, 1),
-                            "puerta_salida": "", "puerta_llegada": "",
-                        }
-                        st.session_state["aerolinea_seleccionada"] = v["Aerolinea"]
-                        st.success(f"✅ Vuelo {v['Callsign']} cargado. Andá a '📋 Registro de Vuelo'.")
-
+                        if error:
+                            st.error(error)
+                        elif isinstance(notams, list) and len(notams) == 0:
+                            st.info(f"✅ Sin avisos. No hay NOTAMs activos reportados para {icao_notam.upper()}.")
+                        else:
+                            st.success(f"Se encontraron {len(notams)} NOTAMs activos para {icao_notam.upper()}.")
+                            
+                            # Mostrar los NOTAMs en cajas expandibles para que no sea un muro de texto
+                            for idx, notam in enumerate(notams):
+                                with st.expander(f"NOTAM {idx + 1}"):
+                                    st.code(notam, language=None)
+                                    # Intentamos dar un formato un poco más amigable si es posible
+                                    if "CLOSED" in notam or "CLSD" in notam:
+                                        st.error("🚫 Contiene aviso de CIERRE (Closed).")
+                                    elif "U/S" in notam or "UNSERVICEABLE" in notam:
+                                        st.warning("⚠️ Contiene aviso de equipo INOPERATIVO (Unserviceable).")
 # ── 2. PESTAÑA AÑADIR ──
         with tab_add:
             st.subheader("➕ Guardar nuevo vuelo en la base")
