@@ -153,6 +153,71 @@ def eliminar_vuelo_gs(row_index):
             return False
     return False
 
+# --- FUNCIONES PARA LA BASE DE VUELOS ALEATORIOS ---
+HEADERS_RUTAS = ["Origen", "Destino", "Aerolinea", "Callsign", "Avion", "Categoria", "Distancia_NM", "Duracion_Est"]
+
+@st.cache_resource
+def conectar_gs_rutas():
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
+        client = gspread.authorize(creds)
+        doc = client.open("FlightLogbook")
+        try:
+            sheet = doc.worksheet("RutasAleatorias")
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = doc.add_worksheet(title="RutasAleatorias", rows="1000", cols="10")
+            sheet.append_row(HEADERS_RUTAS)
+        return sheet
+    except Exception as e:
+        st.error(f"Error conectando a BD de Rutas: {e}")
+        return None
+
+@st.cache_data(ttl=10)
+def leer_rutas_aleatorias():
+    sheet = conectar_gs_rutas()
+    if sheet:
+        try:
+            data = sheet.get_all_records()
+            return pd.DataFrame(data)
+        except Exception:
+            pass
+    return pd.DataFrame()
+
+def guardar_ruta_gs(row_data):
+    sheet = conectar_gs_rutas()
+    if sheet:
+        try:
+            sheet.append_row([str(x) for x in row_data])
+            leer_rutas_aleatorias.clear()
+            return True
+        except Exception: return False
+    return False
+
+def eliminar_ruta_gs(row_index):
+    sheet = conectar_gs_rutas()
+    if sheet:
+        try:
+            sheet.delete_rows(row_index + 2) # +2 por header y base 1
+            leer_rutas_aleatorias.clear()
+            return True
+        except Exception: return False
+    return False
+
+def actualizar_ruta_gs(row_index, row_data):
+    sheet = conectar_gs_rutas()
+    if sheet:
+        try:
+            # Gspread usa base 1, fila 1 es header, así que la data empieza en row_index + 2
+            cell_list = sheet.range(f"A{row_index + 2}:H{row_index + 2}")
+            for i, val in enumerate(row_data):
+                cell_list[i].value = str(val)
+            sheet.update_cells(cell_list)
+            leer_rutas_aleatorias.clear()
+            return True
+        except Exception as e: 
+            st.error(e)
+            return False
+    return False
 
 # --- 3. FUNCIONES LÓGICAS ---
 
@@ -873,607 +938,169 @@ def main_app():
 - **SPECI** = METAR especial por cambio brusco
 """)
 
-    # =========================================================
-    # 5. VUELOS ALEATORIOS (OpenSky Network)
+# =========================================================
+    # 5. VUELOS ALEATORIOS (BASE DE DATOS PROPIA)
     # =========================================================
     elif menu == "🎲 Vuelos Aleatorios":
         import random
+        st.header("🎲 Centro de Rutas")
+        st.caption("Tu base de datos personal de vuelos reales para simular.")
 
-        # Mapa tipo ICAO → nombre legible
-        ICAO_TYPE_MODELS = {
-            "A319": "Airbus A319", "A320": "Airbus A320", "A20N": "Airbus A320 Neo",
-            "A321": "Airbus A321", "A21N": "Airbus A321 Neo", "A332": "Airbus A330-200",
-            "A333": "Airbus A330-300", "A339": "Airbus A330-900", "A346": "Airbus A340-600",
-            "A359": "Airbus A350-900", "A35K": "Airbus A350-1000", "A388": "Airbus A380-800",
-            "B736": "Boeing 737-600", "B737": "Boeing 737-700", "B738": "Boeing 737-800",
-            "B739": "Boeing 737-900", "B38M": "Boeing 737 MAX 8", "B748": "Boeing 747-8",
-            "B772": "Boeing 777-200", "B77L": "Boeing 777-200LR", "B77W": "Boeing 777-300ER",
-            "B788": "Boeing 787-8", "B789": "Boeing 787-9", "B78X": "Boeing 787-10",
-            "E170": "Embraer E170", "E175": "Embraer E175", "E190": "Embraer E190",
-            "E195": "Embraer E195", "AT45": "ATR 42-600", "AT75": "ATR 72-600",
-            "DH8D": "Dash 8 Q400", "CRJ9": "CRJ-900", "CRJ7": "CRJ-700",
-            "C172": "Cessna 172", "C208": "Cessna Caravan",
-        }
+        tab_gen, tab_add, tab_admin = st.tabs(["🎲 Generar Vuelo", "➕ Añadir a la Base", "✏️ Administrar Base"])
+        df_rutas = leer_rutas_aleatorias()
 
-        @st.cache_data(ttl=30)
-        def obtener_vuelo_fr24():
-            """
-            Usa FlightRadarAPI (SDK no oficial, educativo) para obtener
-            un vuelo real en curso con origen, destino, avión y aerolínea.
-            Retorna (dict, error_str).
-            """
-            Accede directamente a la API interna de Flightradar24 con requests.
-            Sin dependencias externas - solo usa el requests que ya esta instalado.
-            Retorna (dict, error_str).
-            """
-            import json as _json
+        # ── 1. PESTAÑA GENERAR ──
+        with tab_gen:
+            if df_rutas.empty:
+                st.info("💡 Tu base de datos está vacía. Andá a la pestaña 'Añadir a la Base' para guardar tus primeros vuelos.")
+            else:
+                col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+                categorias = ["Cualquiera"] + sorted(df_rutas["Categoria"].unique().tolist())
+                aviones = ["Cualquier avión"] + sorted(df_rutas["Avion"].unique().tolist())
+                
+                with col_f1: cat_sel = st.selectbox("Categoría", categorias)
+                with col_f2: avion_sel = st.selectbox("Avión", aviones)
+                with col_f3:
+                    st.write("")
+                    st.write("")
+                    btn_gen = st.button("🎲 Sortear", use_container_width=True)
 
-            HEADERS = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Origin": "https://www.flightradar24.com",
-                "Referer": "https://www.flightradar24.com/",
-            }
+                if btn_gen or "vuelo_sorteado" not in st.session_state:
+                    pool = df_rutas.copy()
+                    if cat_sel != "Cualquiera": pool = pool[pool["Categoria"] == cat_sel]
+                    if avion_sel != "Cualquier avión": pool = pool[pool["Avion"] == avion_sel]
+                    
+                    if not pool.empty:
+                        # Selecciona una fila al azar y la convierte en diccionario
+                        st.session_state["vuelo_sorteado"] = pool.sample(1).iloc[0].to_dict()
+                    else:
+                        st.warning("No hay vuelos guardados que coincidan con esos filtros.")
+                        st.session_state["vuelo_sorteado"] = None
 
-            DB_IATA = airportsdata.load('IATA')
+                v = st.session_state.get("vuelo_sorteado")
+                if v:
+                    st.divider()
+                    c1, c2 = st.columns([3, 2])
+                    with c1:
+                        st.markdown(f"## 🛫 {v['Origen']}  →  🛬 {v['Destino']}")
+                        st.markdown(f"**{v['Aerolinea']}** — Vuelo `{v['Callsign']}`")
+                        st.caption(f"Categoría: {v['Categoria']}")
+                    with c2:
+                        st.metric("✈️ Avión", v['Avion'])
+                        st.metric("📏 Distancia / Tiempo", f"{v['Distancia_NM']} NM | {v['Duracion_Est']}")
 
-            def iata_to_icao(iata):
-                return DB_IATA.get(iata, {}).get('icao', iata) if iata else '????'
-
-            try:
-                # Paso 1: obtener zona aleatoria del mundo para variedad
-                zonas = [
-                    # Europa
-                    {"bounds": "72,35,-15,40"},
-                    # Norteamérica
-                    {"bounds": "60,25,-130,-60"},
-                    # Asia-Pacífico
-                    {"bounds": "55,-10,80,150"},
-                    # Latinoamérica
-                    {"bounds": "15,-60,-80,-30"},
-                    # Oriente Medio / África
-                    {"bounds": "40,-40,20,60"},
-                ]
-                zona = random.choice(zonas)
-
-                r = requests.get(
-                    "https://data-live.flightradar24.com/zones/fcgi/feed.js",
-                    params={
-                        "faa": "1", "satellite": "1", "mlat": "1", "flarm": "1",
-                        "adsb": "1", "gnd": "0", "air": "1", "vehicles": "0",
-                        "estimated": "0", "maxage": "14400", "gliders": "0",
-                        "stats": "0", "enc": "5uUUUUUU",
-                        **zona,
-                    },
-                    headers=HEADERS,
-                    timeout=12,
-                )
-
-                if r.status_code != 200:
-                    return None, f"FR24 feed error {r.status_code}"
-
-                data = r.json()
-
-                # Filtrar entradas de vuelo válidas (listas con ≥13 elementos)
-                # Formato: {fr24_id: [icao24, lat, lon, heading, alt_ft, vel_kt,
-                #           callsign, on_ground, ?, registration, ?, icao_type,
-                #           airline_iata, orig_iata, dest_iata, ?, ...]}
-                candidatos = []
-                for fid, v in data.items():
-                    if not isinstance(v, list) or len(v) < 14:
-                        continue
-                    orig_iata = (v[11] or "").strip()
-                    dest_iata = (v[12] or "").strip()
-                    callsign  = (v[16] or "").strip() if len(v) > 16 else ""
-                    alt_ft    = int(v[4]) if v[4] else 0
-                    on_ground = int(v[14]) if v[14] != "" else 1
-
-                    if not orig_iata or not dest_iata or alt_ft < 5000 or on_ground:
-                        continue
-                    candidatos.append({
-                        "fr24_id":    fid,
-                        "icao24":     v[0],
-                        "lat":        float(v[1]),
-                        "lon":        float(v[2]),
-                        "heading":    int(v[3]),
-                        "alt_ft":     alt_ft,
-                        "vel_kt":     int(v[5]) if v[5] else 0,
-                        "callsign":   callsign or v[0],
-                        "registro":   (v[9] or "").strip(),
-                        "tipo_icao":  (v[8] or "").strip().upper(),
-                        "orig_iata":  orig_iata,
-                        "dest_iata":  dest_iata,
-                    })
-
-                if not candidatos:
-                    return None, "No se encontraron vuelos con ruta completa en esta zona. Intentá de nuevo."
-
-                random.shuffle(candidatos)
-
-                # Paso 2: obtener detalle del primer candidato válido
-                for c in candidatos[:5]:
-                    try:
-                        r2 = requests.get(
-                            f"https://data-live.flightradar24.com/clickhandler/?version=1.5&flight={c['fr24_id']}",
-                            headers=HEADERS,
-                            timeout=8,
-                        )
-                        if r2.status_code != 200:
-                            continue
-                        det = r2.json()
-
-                        airline_info = det.get("airline", {}) or {}
-                        aerolinea = airline_info.get("short", "") or airline_info.get("name", "") or ""
-
-                        aircraft_info = det.get("aircraft", {}) or {}
-                        tipo_icao = (aircraft_info.get("model", {}) or {}).get("code", c["tipo_icao"]) or c["tipo_icao"]
-                        tipo_icao = tipo_icao.upper()
-
-                        airport_info = det.get("airport", {}) or {}
-                        orig_data = (airport_info.get("origin", {}) or {})
-                        dest_data = (airport_info.get("destination", {}) or {})
-
-                        # Preferir ICAO directo si está disponible en el detalle
-                        orig_iata = (orig_data.get("code", {}) or {}).get("iata", c["orig_iata"]) or c["orig_iata"]
-                        dest_iata = (dest_data.get("code", {}) or {}).get("iata", c["dest_iata"]) or c["dest_iata"]
-                        orig_icao_det = (orig_data.get("code", {}) or {}).get("icao", "") or iata_to_icao(orig_iata)
-                        dest_icao_det = (dest_data.get("code", {}) or {}).get("icao", "") or iata_to_icao(dest_iata)
-
-                        # ETA
-                        time_info = det.get("time", {}) or {}
-                        eta_str = None
-                        eta_ts = (time_info.get("estimated", {}) or {}).get("arrival")
-                        if eta_ts:
-                            from datetime import datetime as _dt
+                    # Cargar al registro
+                    st.divider()
+                    if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
+                        # Extraemos horas del texto de duracion (ej: "~3h 15m")
+                        horas_float = 0.0
+                        if "h" in str(v['Duracion_Est']):
                             try:
-                                eta_str = _dt.utcfromtimestamp(eta_ts).strftime('%H:%M UTC')
-                            except Exception:
-                                pass
+                                h_str = v['Duracion_Est'].split("h")[0].replace("~", "").strip()
+                                m_str = v['Duracion_Est'].split("h")[1].replace("m", "").strip()
+                                horas_float = float(h_str) + (float(m_str)/60)
+                            except: pass
 
-                        callsign = det.get("identification", {}).get("callsign", "") or c["callsign"]
-                        registro = (aircraft_info.get("registration", "") or c["registro"]).strip()
+                        st.session_state.form_data = {
+                            "origen": v["Origen"], "destino": v["Destino"], "ruta": "",
+                            "no_vuelo": v["Callsign"], "tiempo": round(horas_float, 1),
+                            "puerta_salida": "", "puerta_llegada": "",
+                        }
+                        st.session_state["aerolinea_seleccionada"] = v["Aerolinea"]
+                        st.success(f"✅ Vuelo {v['Callsign']} cargado. Andá a '📋 Registro de Vuelo'.")
 
-                        return {
-                            "callsign":    callsign or "N/A",
-                            "aerolinea":   aerolinea,
-                            "origen_icao": orig_icao_det or orig_iata,
-                            "destino_icao":dest_icao_det or dest_iata,
-                            "origen_iata": orig_iata,
-                            "destino_iata":dest_iata,
-                            "tipo_icao":   tipo_icao,
-                            "modelo":      ICAO_TYPE_MODELS.get(tipo_icao, tipo_icao or "Desconocido"),
-                            "registro":    registro,
-                            "alt_ft":      c["alt_ft"],
-                            "vel_kt":      c["vel_kt"],
-                            "heading":     c["heading"],
-                            "lat":         c["lat"],
-                            "lon":         c["lon"],
-                            "eta":         eta_str,
-                        }, None
+        # ── 2. PESTAÑA AÑADIR ──
+        with tab_add:
+            st.subheader("➕ Guardar nuevo vuelo en la base")
+            with st.form("add_ruta_form"):
+                c1, c2 = st.columns(2)
+                origen = c1.text_input("Origen (ICAO)").upper().strip()
+                destino = c2.text_input("Destino (ICAO)").upper().strip()
+                
+                c3, c4 = st.columns(2)
+                aerolinea = c3.text_input("Aerolínea (ej. LATAM Airlines)")
+                callsign = c4.text_input("Número de Vuelo / Callsign (ej. LA400)")
+                
+                c5, c6 = st.columns(2)
+                avion = c5.selectbox("Modelo de Avión", MODELOS_AVION)
+                cat = c6.selectbox("Categoría", ["Corto radio (< 2h)", "Medio radio (2-6h)", "Largo radio (> 6h)", "Desafiante / Especial"])
 
-                    except Exception:
-                        continue
+                submitted_add = st.form_submit_button("💾 Guardar en Base de Datos")
 
-                # Fallback: usar datos del feed sin detalle
-                c = candidatos[0]
-                return {
-                    "callsign":    c["callsign"],
-                    "aerolinea":   "",
-                    "origen_icao": iata_to_icao(c["orig_iata"]),
-                    "destino_icao":iata_to_icao(c["dest_iata"]),
-                    "origen_iata": c["orig_iata"],
-                    "destino_iata":c["dest_iata"],
-                    "tipo_icao":   c["tipo_icao"],
-                    "modelo":      ICAO_TYPE_MODELS.get(c["tipo_icao"], c["tipo_icao"] or "Desconocido"),
-                    "registro":    c["registro"],
-                    "alt_ft":      c["alt_ft"],
-                    "vel_kt":      c["vel_kt"],
-                    "heading":     c["heading"],
-                    "lat":         c["lat"],
-                    "lon":         c["lon"],
-                    "eta":         None,
-                }, None
+                if submitted_add:
+                    if len(origen) != 4 or len(destino) != 4:
+                        st.error("Los códigos ICAO deben tener 4 letras.")
+                    elif not callsign or not aerolinea:
+                        st.error("Completá la aerolínea y el callsign.")
+                    else:
+                        # Cálculo automático de distancia y tiempo
+                        c_o = obtener_coords(origen)
+                        c_d = obtener_coords(destino)
+                        dist_nm = 0
+                        dur_str = "Desconocido"
+                        if c_o and c_d:
+                            dist_nm = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
+                            horas_est = dist_nm / 480
+                            h = int(horas_est)
+                            m = int((horas_est - h) * 60)
+                            dur_str = f"~{h}h {m:02d}m"
+                        
+                        row = [origen, destino, aerolinea, callsign, avion, cat, dist_nm, dur_str]
+                        with st.spinner("Guardando ruta..."):
+                            if guardar_ruta_gs(row):
+                                st.success(f"✅ Ruta {origen}-{destino} guardada con éxito (Distancia auto-calculada: {dist_nm} NM).")
+                            else:
+                                st.error("Error al guardar en Google Sheets.")
 
-            except Exception as e:
-                return None, f"Error conectando con Flightradar24: {e}"
+        # ── 3. PESTAÑA ADMINISTRAR ──
+        with tab_admin:
+            if df_rutas.empty:
+                st.write("No hay rutas registradas todavía.")
+            else:
+                st.subheader("🛠️ Editar o Eliminar Rutas")
+                for i, row in df_rutas.iterrows():
+                    with st.expander(f"✈️ {row['Aerolinea']} {row['Callsign']} | {row['Origen']} ➡️ {row['Destino']}"):
+                        # Formulario de edición para cada fila
+                        with st.form(f"edit_form_{i}"):
+                            ec1, ec2, ec3 = st.columns(3)
+                            n_orig = ec1.text_input("Origen", value=row['Origen'], key=f"o_{i}").upper()
+                            n_dest = ec2.text_input("Destino", value=row['Destino'], key=f"d_{i}").upper()
+                            n_call = ec3.text_input("Callsign", value=row['Callsign'], key=f"c_{i}")
+                            
+                            ec4, ec5, ec6 = st.columns(3)
+                            n_aero = ec4.text_input("Aerolínea", value=row['Aerolinea'], key=f"a_{i}")
+                            n_avion = ec5.text_input("Avión", value=row['Avion'], key=f"av_{i}")
+                            n_cat = ec6.text_input("Categoría", value=row['Categoria'], key=f"cat_{i}")
+                            
+                            c_btn1, c_btn2 = st.columns(2)
+                            guardar_cambios = c_btn1.form_submit_button("💾 Actualizar Ruta")
+                            eliminar = c_btn2.form_submit_button("🗑️ Eliminar Ruta")
 
-        # ------------------------------------------------------------------
-        # UI principal
-        # ------------------------------------------------------------------
-        st.header("🎲 Vuelos Reales para el Simulador")
+                            if guardar_cambios:
+                                # Recalcular si cambiaron los aeropuertos
+                                dist_nm = row['Distancia_NM']
+                                dur_str = row['Duracion_Est']
+                                if n_orig != row['Origen'] or n_dest != row['Destino']:
+                                    co = obtener_coords(n_orig)
+                                    cd = obtener_coords(n_dest)
+                                    if co and cd:
+                                        dist_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1]))
+                                        h_est = dist_nm / 480
+                                        dur_str = f"~{int(h_est)}h {int((h_est - int(h_est)) * 60):02d}m"
 
-        modo_fuente = st.radio(
-            "Fuente de vuelos",
-            ["🛰️ En vivo (Flightradar24)", "📚 Base curada"],
-            horizontal=True,
-        )
-
-        # ── MODO EN VIVO ──────────────────────────────────────────────────
-        if modo_fuente == "🛰️ En vivo (Flightradar24)":
-            col_btn, col_hint = st.columns([1, 3])
-            with col_btn:
-                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
-            with col_hint:
-                st.caption("Datos reales de Flightradar24: origen, destino, aerolínea y tipo de avión en tiempo real.")
-
-            if generar_live or "vuelo_live" not in st.session_state:
-                obtener_vuelo_fr24.clear()   # forzar refresh en cada click
-                with st.spinner("Conectando con Flightradar24 y buscando un vuelo con ruta completa…"):
-                    v_live, err_live = obtener_vuelo_fr24()
-                if not v_live:
-                    st.error(f"No se pudo obtener un vuelo: {err_live}")
-                    st.stop()
-                st.session_state["vuelo_live"] = v_live
-
-            v = st.session_state["vuelo_live"]
-
-            dist = mostrar_tarjeta_vuelo(
-                orig_icao  = v["origen_icao"],
-                dest_icao  = v["destino_icao"],
-                callsign   = v["callsign"],
-                modelo     = v.get("modelo", "Desconocido"),
-                aerolinea  = v.get("aerolinea"),
-                num_vuelo  = v["callsign"],
-                alt_ft     = v["alt_ft"],
-                vel_kt     = v["vel_kt"],
-                heading    = v["heading"],
-                lat_actual = v["lat"],
-                lon_actual = v["lon"],
-                es_live    = True,
-            )
-
-            # ETA y matrícula si están disponibles
-            extras = []
-            if v.get("registro"):   extras.append(f"✈️ Matrícula: `{v['registro']}`")
-            if v.get("eta"):        extras.append(f"🕐 ETA: **{v['eta']}**")
-            if v.get("tipo_icao"):  extras.append(f"🔤 Tipo ICAO: `{v['tipo_icao']}`")
-            if extras:
-                st.caption("  |  ".join(extras))
-
-            st.divider()
-            if st.button("📋 Cargar en el Registro", use_container_width=True):
-                horas_est = (dist / 480) if dist else 0.0
-                st.session_state.form_data = {
-                    "origen":       v["origen_icao"],
-                    "destino":      v["destino_icao"],
-                    "ruta":         "",
-                    "no_vuelo":     v["callsign"],
-                    "tiempo":       round(horas_est, 1),
-                    "puerta_salida": "",
-                    "puerta_llegada": "",
-                }
-                if v.get("aerolinea"):
-                    st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
-                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo'.")
-        def mostrar_tarjeta_vuelo(orig_icao, dest_icao, callsign, modelo,
-                                  duracion=None, aerolinea=None, num_vuelo=None,
-                                  alt_ft=None, vel_kt=None, heading=None,
-                                  lat_actual=None, lon_actual=None, es_live=False):
-
-            apt_o = AIRPORTS_DB.get(orig_icao, {})
-            apt_d = AIRPORTS_DB.get(dest_icao, {})
-            ciudad_o = f"{apt_o.get('city','')}, {apt_o.get('country','')}" if apt_o else "—"
-            ciudad_d = f"{apt_d.get('city','')}, {apt_d.get('country','')}" if apt_d else "—"
-            nombre_o = apt_o.get('name', orig_icao)
-            nombre_d = apt_d.get('name', dest_icao)
-            elev_o = apt_o.get('elevation', 0)
-            elev_d = apt_d.get('elevation', 0)
-
-            c_orig = obtener_coords(orig_icao)
-            c_dest = obtener_coords(dest_icao)
-            dist_nm = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1])) if (c_orig and c_dest) else None
-            dist_km = round(dist_nm * 1.852) if dist_nm else None
-
-            # Tiempo estimado si no se provee (a ~480kt crucero)
-            if not duracion and dist_nm:
-                horas_est = dist_nm / 480
-                h = int(horas_est)
-                m = int((horas_est - h) * 60)
-                duracion = f"~{h}h {m:02d}m"
-
-            live_badge = '<span style="background:#e74c3c;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:1px;">LIVE</span>' if es_live else ''
-            aero_str = '<span style="color:#aaa;font-size:14px;">' + str(aerolinea) + '</span>' if aerolinea else ""
-            num_str  = '<code style="background:#222;padding:2px 8px;border-radius:4px;font-size:15px;">' + str(num_vuelo or callsign) + '</code>'
-            dist_str = (str(dist_nm) + ' NM') if dist_nm else '--'
-            dur_str  = str(duracion) if duracion else '--'
-            elev_o_str = str(elev_o) + ' ft'
-            elev_d_str = str(elev_d) + ' ft'
-
-            html_chips = (
-                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Avion</div>'
-                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + str(modelo) + '</div></div>'
-                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Distancia</div>'
-                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + dist_str + '</div></div>'
-                '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Duracion est.</div>'
-                '<div style="font-size:14px;font-weight:600;color:#fff;margin-top:2px;">' + dur_str + '</div></div>'
-            )
-            if es_live and alt_ft:
-                html_chips += (
-                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Altitud</div>'
-                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + f'{alt_ft:,} ft' + '</div></div>'
-                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Velocidad</div>'
-                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + str(vel_kt) + ' kt</div></div>'
-                    '<div style="background:#0d1f2d;border-radius:8px;padding:10px 16px;min-width:110px;">'
-                    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:1px;">Rumbo</div>'
-                    '<div style="font-size:14px;font-weight:600;color:#39ff14;margin-top:2px;">' + str(heading) + '</div></div>'
-                )
-
-            html = (
-                '<div style="background:linear-gradient(135deg,#0f1923 0%,#1a2535 100%);'
-                'border:1px solid #2a3a4a;border-radius:14px;padding:24px 28px;margin-bottom:16px;">'
-                '<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;">'
-                + num_str + ' ' + aero_str + ' ' + live_badge +
-                '</div>'
-                '<div style="display:grid;grid-template-columns:1fr 48px 1fr;align-items:center;gap:8px;margin-bottom:20px;">'
-                '<div>'
-                '<div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">' + str(orig_icao) + '</div>'
-                '<div style="font-size:13px;color:#7ec8e3;font-weight:600;">' + str(nombre_o) + '</div>'
-                '<div style="font-size:12px;color:#888;">' + str(ciudad_o) + '</div>'
-                '<div style="font-size:11px;color:#555;">' + elev_o_str + '</div>'
-                '</div>'
-                '<div style="text-align:center;font-size:28px;color:#39ff14;">&#x2708;</div>'
-                '<div style="text-align:right;">'
-                '<div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:2px;">' + str(dest_icao) + '</div>'
-                '<div style="font-size:13px;color:#7ec8e3;font-weight:600;">' + str(nombre_d) + '</div>'
-                '<div style="font-size:12px;color:#888;">' + str(ciudad_d) + '</div>'
-                '<div style="font-size:11px;color:#555;">' + elev_d_str + '</div>'
-                '</div>'
-                '</div>'
-                '<div style="display:flex;flex-wrap:wrap;gap:12px;">'
-                + html_chips +
-                '</div>'
-                '</div>'
-            )
-            st.markdown(html, unsafe_allow_html=True)
-
-            # Mapa
-            if c_orig and c_dest:
-                centro = [v["lat"], v["lon"]] if (es_live and lat_actual) else [(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2]
-                zoom = 4 if es_live else 3
-                m = folium.Map(location=centro, zoom_start=zoom, tiles="CartoDB dark_matter")
-                ruta = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
-                folium.PolyLine(ruta, color="#39ff14", weight=2,
-                                opacity=0.6 if es_live else 0.85,
-                                dash_array="6" if es_live else None).add_to(m)
-                folium.Marker(c_orig, tooltip=f"🛫 {orig_icao}",
-                              icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m)
-                folium.Marker(c_dest, tooltip=f"🛬 {dest_icao}",
-                              icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m)
-                if es_live and lat_actual:
-                    folium.Marker(
-                        [lat_actual, lon_actual],
-                        tooltip=f"✈️ {callsign} — posición actual",
-                        icon=folium.Icon(color="blue", icon="plane", prefix="fa"),
-                        popup=f"{alt_ft:,} ft | {vel_kt} kt | {heading}°"
-                    ).add_to(m)
-                st_folium(m, width=900, height=400)
-                if dist_nm:
-                    st.caption(f"📏 Gran círculo: **{dist_nm:,} NM** ({dist_km:,} km)")
-
-            return dist_nm  # para usar en el botón de registro
-
-        # ── MODO EN VIVO ──────────────────────────────────────────────────
-        if modo_fuente == "🛰️ En vivo (Flightradar24)":
-            col_btn, col_hint = st.columns([1, 3])
-            with col_btn:
-                generar_live = st.button("🔄 Obtener vuelo en vivo", use_container_width=True)
-            with col_hint:
-                st.caption("Conecta con OpenSky Network y elige un vuelo comercial real en curso ahora mismo.")
-
-            aviso_ruta = None
-            if generar_live or "vuelo_live" not in st.session_state:
-                with st.spinner("Conectando con OpenSky…"):
-                    token, err_tok = obtener_token_opensky(
-                        st.secrets["opensky"]["client_id"],
-                        st.secrets["opensky"]["client_secret"],
-                    )
-                if not token:
-                    st.error(f"No se pudo autenticar: {err_tok}")
-                    st.stop()
-                with st.spinner("Buscando vuelo con ruta completa…"):
-                    v_live, aviso_ruta = obtener_vuelo_live_completo(token)
-                if not v_live:
-                    st.error(aviso_ruta)
-                    st.stop()
-                st.session_state["vuelo_live"] = v_live
-                st.session_state["aviso_live"] = aviso_ruta
-
-            v = st.session_state["vuelo_live"]
-            aviso_ruta = st.session_state.get("aviso_live")
-            if aviso_ruta:
-                st.warning(aviso_ruta)
-
-            dist = mostrar_tarjeta_vuelo(
-                orig_icao=v["origen_icao"],
-                dest_icao=v["destino_icao"],
-                callsign=v["callsign"],
-                modelo=v.get("modelo","Desconocido"),
-                alt_ft=v["alt_ft"],
-                vel_kt=v["vel_kt"],
-                heading=v["heading"],
-                lat_actual=v["lat"],
-                lon_actual=v["lon"],
-                es_live=True,
-            )
-
-            st.divider()
-            if st.button("📋 Cargar en el Registro", use_container_width=True):
-                horas_est = (dist / 480) if dist else 0.0
-                st.session_state.form_data = {
-                    "origen": v["origen_icao"],
-                    "destino": v["destino_icao"],
-                    "ruta": "",
-                    "no_vuelo": v["callsign"],
-                    "tiempo": round(horas_est, 1),
-                    "puerta_salida": "",
-                    "puerta_llegada": "",
-                }
-                st.success(f"✅ Vuelo `{v['callsign']}` cargado. Andá a '📋 Registro de Vuelo'.")
-
-        # ── MODO BASE CURADA ──────────────────────────────────────────────
-        else:
-            VUELOS_CURADOS = [
-                # Largo radio
-                {"origen":"EGLL","destino":"KJFK","aerolinea":"British Airways","num":"BA112","avion":"Boeing 777-200","duracion":"7h 30m","categoria":"Largo radio"},
-                {"origen":"OMDB","destino":"KLAX","aerolinea":"Emirates","num":"EK215","avion":"Airbus A380-800","duracion":"16h 15m","categoria":"Largo radio"},
-                {"origen":"YSSY","destino":"EGLL","aerolinea":"Qantas","num":"QF1","avion":"Boeing 787-9","duracion":"22h 00m","categoria":"Largo radio"},
-                {"origen":"KJFK","destino":"NZAA","aerolinea":"Air New Zealand","num":"NZ2","avion":"Boeing 787-9","duracion":"17h 40m","categoria":"Largo radio"},
-                {"origen":"LFPG","destino":"RJAA","aerolinea":"Air France","num":"AF276","avion":"Boeing 777-300ER","duracion":"12h 30m","categoria":"Largo radio"},
-                {"origen":"LEMD","destino":"SAEZ","aerolinea":"Aerolíneas Argentinas","num":"AR1140","avion":"Boeing 787-9","duracion":"13h 00m","categoria":"Largo radio"},
-                {"origen":"EGLL","destino":"OMDB","aerolinea":"Emirates","num":"EK3","avion":"Airbus A380-800","duracion":"7h 05m","categoria":"Largo radio"},
-                {"origen":"KLAX","destino":"RJAA","aerolinea":"Japan Airlines (JAL)","num":"JL62","avion":"Boeing 777-300ER","duracion":"11h 30m","categoria":"Largo radio"},
-                {"origen":"SBGR","destino":"LFPG","aerolinea":"Air France","num":"AF444","avion":"Boeing 777-300ER","duracion":"11h 20m","categoria":"Largo radio"},
-                {"origen":"FAOR","destino":"EGLL","aerolinea":"South African Airways","num":"SA234","avion":"Airbus A340-600","duracion":"11h 00m","categoria":"Largo radio"},
-                {"origen":"KLAX","destino":"PHNL","aerolinea":"Hawaiian Airlines","num":"HA2","avion":"Airbus A330-900","duracion":"5h 45m","categoria":"Largo radio"},
-                # Medio radio
-                {"origen":"SCEL","destino":"SAEZ","aerolinea":"LATAM Airlines","num":"LA400","avion":"Airbus A320","duracion":"2h 15m","categoria":"Medio radio"},
-                {"origen":"LEMD","destino":"LFPG","aerolinea":"Iberia","num":"IB3166","avion":"Airbus A321","duracion":"2h 05m","categoria":"Medio radio"},
-                {"origen":"KJFK","destino":"KMIA","aerolinea":"American Airlines","num":"AA1","avion":"Boeing 737-800","duracion":"3h 10m","categoria":"Medio radio"},
-                {"origen":"EHAM","destino":"LEMD","aerolinea":"KLM","num":"KL1706","avion":"Boeing 737-800","duracion":"2h 40m","categoria":"Medio radio"},
-                {"origen":"MMMX","destino":"KJFK","aerolinea":"Aeroméxico","num":"AM002","avion":"Boeing 787-8","duracion":"4h 30m","categoria":"Medio radio"},
-                {"origen":"SKBO","destino":"MPTO","aerolinea":"Copa Airlines","num":"CM303","avion":"Boeing 737-800","duracion":"1h 40m","categoria":"Medio radio"},
-                {"origen":"RJAA","destino":"RKSI","aerolinea":"All Nippon Airways (ANA)","num":"NH963","avion":"Boeing 767-300","duracion":"2h 25m","categoria":"Medio radio"},
-                {"origen":"EGLL","destino":"LIRF","aerolinea":"British Airways","num":"BA548","avion":"Airbus A320 Neo","duracion":"2h 30m","categoria":"Medio radio"},
-                {"origen":"SAEZ","destino":"SBGR","aerolinea":"LATAM Airlines Brasil","num":"LA8080","avion":"Airbus A320","duracion":"3h 00m","categoria":"Medio radio"},
-                {"origen":"SPJC","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA2037","avion":"Airbus A319","duracion":"3h 30m","categoria":"Medio radio"},
-                {"origen":"OMDB","destino":"VABB","aerolinea":"flydubai","num":"FZ551","avion":"Boeing 737 MAX 8","duracion":"3h 15m","categoria":"Medio radio"},
-                # Corto radio
-                {"origen":"LEMD","destino":"LEBL","aerolinea":"Vueling","num":"VY1803","avion":"Airbus A320","duracion":"1h 10m","categoria":"Corto radio"},
-                {"origen":"EGLL","destino":"EGPH","aerolinea":"British Airways","num":"BA1478","avion":"Airbus A319","duracion":"1h 20m","categoria":"Corto radio"},
-                {"origen":"KJFK","destino":"KBOS","aerolinea":"JetBlue","num":"B61025","avion":"Airbus A320","duracion":"1h 10m","categoria":"Corto radio"},
-                {"origen":"SCEL","destino":"SCTE","aerolinea":"Sky Airline","num":"H2201","avion":"Airbus A320","duracion":"1h 30m","categoria":"Corto radio"},
-                {"origen":"EHAM","destino":"EGLL","aerolinea":"KLM","num":"KL1009","avion":"Embraer E190","duracion":"1h 05m","categoria":"Corto radio"},
-                {"origen":"SAEZ","destino":"SAME","aerolinea":"Aerolíneas Argentinas","num":"AR1531","avion":"Boeing 737-700","duracion":"1h 35m","categoria":"Corto radio"},
-                {"origen":"RKSI","destino":"RCTP","aerolinea":"Asiana Airlines","num":"OZ711","avion":"Airbus A321","duracion":"1h 55m","categoria":"Corto radio"},
-                # Desafiantes
-                {"origen":"BGGH","destino":"EKCH","aerolinea":"Air Greenland","num":"GL451","avion":"Airbus A330-900","duracion":"4h 30m","categoria":"Desafiante"},
-                {"origen":"NZAA","destino":"NTAA","aerolinea":"Air New Zealand","num":"NZ1","avion":"Boeing 787-9","duracion":"5h 30m","categoria":"Desafiante"},
-                {"origen":"SCCI","destino":"SCEL","aerolinea":"LATAM Airlines","num":"LA336","avion":"Airbus A319","duracion":"3h 40m","categoria":"Desafiante"},
-                {"origen":"LPLA","destino":"LPPT","aerolinea":"SATA Air Açores","num":"SP191","avion":"Airbus A320","duracion":"2h 10m","categoria":"Desafiante"},
-                {"origen":"VIDP","destino":"VQPR","aerolinea":"Druk Air","num":"KB200","avion":"Airbus A319","duracion":"1h 50m","categoria":"Desafiante"},
-                {"origen":"FACT","destino":"FHSH","aerolinea":"Airlink","num":"4Z541","avion":"Embraer E170","duracion":"2h 00m","categoria":"Desafiante"},
-            ]
-
-            col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
-            cats = ["Cualquiera", "Largo radio", "Medio radio", "Corto radio", "Desafiante"]
-            with col_f1:
-                cat_sel = st.selectbox("Categoría", cats)
-            with col_f2:
-                aviones_disp = ["Cualquier avión"] + sorted(set(v["avion"] for v in VUELOS_CURADOS))
-                avion_sel = st.selectbox("Avión", aviones_disp)
-            with col_f3:
-                st.write("")
-                st.write("")
-                generar_cur = st.button("🎲 Generar vuelo", use_container_width=True)
-
-            if generar_cur or "vuelo_random" not in st.session_state:
-                pool = VUELOS_CURADOS.copy()
-                if cat_sel != "Cualquiera":
-                    pool = [v for v in pool if v["categoria"] == cat_sel]
-                if avion_sel != "Cualquier avión":
-                    pool = [v for v in pool if v["avion"] == avion_sel]
-                if pool:
-                    st.session_state["vuelo_random"] = random.choice(pool)
-                else:
-                    st.warning("Sin resultados con esos filtros.")
-                    st.stop()
-
-            v = st.session_state.get("vuelo_random")
-            if not v:
-                st.stop()
-
-            mostrar_tarjeta_vuelo(
-                orig_icao=v["origen"],
-                dest_icao=v["destino"],
-                callsign=v["num"],
-                modelo=v["avion"],
-                duracion=v["duracion"],
-                aerolinea=v["aerolinea"],
-                num_vuelo=v["num"],
-                es_live=False,
-            )
-
-            st.divider()
-            if st.button("📋 Cargar este vuelo en el Registro", use_container_width=True):
-                c_o = obtener_coords(v["origen"])
-                c_d = obtener_coords(v["destino"])
-                dist_h = round(haversine_nm(c_o[0],c_o[1],c_d[0],c_d[1])/480, 1) if (c_o and c_d) else 0.0
-                st.session_state.form_data = {
-                    "origen": v["origen"],
-                    "destino": v["destino"],
-                    "ruta": "",
-                    "no_vuelo": v["num"],
-                    "tiempo": dist_h,
-                    "puerta_salida": "",
-                    "puerta_llegada": "",
-                }
-                st.session_state["aerolinea_seleccionada"] = v["aerolinea"]
-                st.success(f"✅ Vuelo {v['num']} cargado. Andá a '📋 Registro de Vuelo'.")
-
-
-    elif menu == "🧰 Herramientas":
-        st.header("🧰 Herramientas de Vuelo")
-        t1, t2, t3, t4 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor", "⛽ Combustible"])
-        with t1:
-            st.subheader("Calculadora de Viento Cruzado")
-            wc1, wc2, wc3 = st.columns(3)
-            wd = wc1.number_input("Dirección Viento (°)", 0, 360, 0)
-            ws = wc2.number_input("Velocidad Viento (kt)", 0, 100, 0)
-            rwy = wc3.number_input("Rumbo de Pista (°)", 0, 360, 0)
-            if ws > 0:
-                cw, hw = calcular_viento_cruzado(wd, ws, rwy)
-                col_r1, col_r2 = st.columns(2)
-                col_r1.metric("Viento Cruzado", f"{cw:.1f} kt")
-                col_r2.metric("Viento Cara/Cola", f"{hw:.1f} kt", delta="Favorável" if hw > 0 else "En cola")
-        with t2:
-            st.subheader("Calculadora TOD (Top of Descent)")
-            c_alt, c_tgt = st.columns(2)
-            alt_act = c_alt.number_input("Altitud Actual (ft)", value=35000, step=1000)
-            alt_tgt = c_tgt.number_input("Altitud Objetivo (ft)", value=3000, step=1000)
-            if alt_act > alt_tgt:
-                dist = (alt_act - alt_tgt) * 3 / 1000
-                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM** del destino.")
-                st.caption("Regla de los 3: 3 NM por cada 1000 ft a descender.")
-        with t3:
-            st.subheader("Conversor Rápido")
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                kg = st.number_input("Kg → Lbs", value=0.0, step=0.1)
-                st.caption(f"= **{kg * 2.20462:.1f} lbs**")
-                ft = st.number_input("Pies → Metros", value=0.0, step=100.0)
-                st.caption(f"= **{ft * 0.3048:.1f} m**")
-            with col_c2:
-                kt = st.number_input("Nudos → km/h", value=0.0, step=1.0)
-                st.caption(f"= **{kt * 1.852:.1f} km/h**")
-                nm = st.number_input("NM → km", value=0.0, step=1.0)
-                st.caption(f"= **{nm * 1.852:.1f} km**")
-        with t4:
-            st.subheader("⛽ Calculadora de Combustible")
-            st.caption("Planificación básica de combustible para simulación.")
-            fc1, fc2, fc3 = st.columns(3)
-            trip_fuel = fc1.number_input("Trip Fuel (kg)", value=5000, step=100)
-            cont_pct = fc2.slider("Contingencia (%)", 0, 10, 5)
-            altn_fuel = fc3.number_input("Alternado (kg)", value=1500, step=100)
-            final_rsv = st.number_input("Reserva Final (kg)", value=1500, step=100)
-            taxi_fuel = st.number_input("Taxi / Rodaje (kg)", value=200, step=50)
-
-            cont_fuel = trip_fuel * cont_pct / 100
-            min_fuel = trip_fuel + cont_fuel + altn_fuel + final_rsv
-            block_fuel = min_fuel + taxi_fuel
-
-            st.markdown("---")
-            r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Contingencia", f"{cont_fuel:.0f} kg")
-            r2.metric("Mínimo Embarque", f"{min_fuel:.0f} kg")
-            r3.metric("Block Fuel", f"{block_fuel:.0f} kg")
-            r4.metric("Block Fuel (lbs)", f"{block_fuel * 2.205:.0f} lbs")
-
+                                new_row = [n_orig, n_dest, n_aero, n_call, n_avion, n_cat, dist_nm, dur_str]
+                                if actualizar_ruta_gs(i, new_row):
+                                    st.success("¡Actualizado!")
+                                    st.rerun()
+                                else:
+                                    st.error("Error al actualizar.")
+                                    
+                            if eliminar:
+                                if eliminar_ruta_gs(i):
+                                    st.success("¡Eliminado!")
+                                    st.rerun()
+                                else:
+                                    st.error("Error al eliminar.")
     # =========================================================
     # 6. ESTADÍSTICAS
     # =========================================================
