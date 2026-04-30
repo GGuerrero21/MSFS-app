@@ -902,7 +902,6 @@ def main_app():
             un vuelo real en curso con origen, destino, avión y aerolínea.
             Retorna (dict, error_str).
             """
-            """
             Accede directamente a la API interna de Flightradar24 con requests.
             Sin dependencias externas - solo usa el requests que ya esta instalado.
             Retorna (dict, error_str).
