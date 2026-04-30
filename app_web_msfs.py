@@ -699,6 +699,7 @@ def main_app():
         st.header("🌤️ Centro Meteorológico y Alertas")
         tab1, tab2, tab3, tab4 = st.tabs(["🔍 Buscar Clima", "📡 TAF Comentado", "🎓 Referencia", "⚠️ NOTAMs"])
 
+# ---- TAB 1: BUSCAR + DECODIFICAR ----
         with tab1:
             with st.form("metar_search"):
                 col_s1, col_s2 = st.columns([3, 1])
@@ -720,7 +721,7 @@ def main_app():
                         if dec.get('alerta_niebla'):
                             st.warning("⚠️ Temp y punto de rocío muy cercanos — riesgo de niebla.")
                         
-                        # RESTAURADO: Diseño en grilla para las métricas del METAR
+                        # --- GRILLA SIN LAS NUBES ---
                         campos = [
                             ("📍 Estación",    dec.get('estacion',    '—')),
                             ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
@@ -729,15 +730,28 @@ def main_app():
                             ("🌡️ Temperatura", dec.get('temperatura', '—')),
                             ("💧 Rocío",       dec.get('rocio',       '—')),
                             ("🧭 QNH",         dec.get('qnh',         '—')),
-                            ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
                         ]
+                        
+                        # Si hay fenómenos, ocupan el octavo lugar en la grilla para que quede par
                         if dec.get('fenomenos'):
-                            campos.insert(4, ("⛈️ Fenómenos", dec['fenomenos']))
+                            campos.append(("⛈️ Fenómenos", dec['fenomenos']))
                             
                         for i in range(0, len(campos), 4):
                             row_c = st.columns(4)
                             for j, (lbl, val) in enumerate(campos[i:i+4]):
                                 row_c[j].metric(lbl, val)
+                                
+                        # --- NUBES EN LISTA HACIA ABAJO ---
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.markdown("**☁️ Cobertura de Nubes:**")
+                        nubes_str = dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')
+                        
+                        if nubes_str in ['CAVOK', '—', 'Despejado', 'Sin Nubes']:
+                            st.write(f"✅ {nubes_str}")
+                        else:
+                            # Cortamos el texto por la barrita y creamos la lista
+                            for capa in nubes_str.split(" | "):
+                                st.markdown(f"- {capa}")
                                 
                         if dec.get('tendencia'):
                             st.info(f"**Tendencia:** `{dec['tendencia']}`")
@@ -761,18 +775,29 @@ def main_app():
             if metar_manual.strip():
                 dec = decodificar_metar(metar_manual.strip())
                 if dec:
+                    # Grilla manual sin nubes
                     campos_m = [
                         ("📍 Estación",    dec.get('estacion',    '—')),
                         ("💨 Viento",      dec.get('viento',      '—')),
                         ("👁️ Visibilidad", dec.get('visibilidad', '—')),
                         ("🌡️ Temperatura", dec.get('temperatura', '—')),
-                        ("☁️ Nubes",       dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')),
                         ("🧭 QNH",         dec.get('qnh',         '—')),
                     ]
+                    
                     for i in range(0, len(campos_m), 3):
                         row_c = st.columns(3)
                         for j, (lbl, val) in enumerate(campos_m[i:i+3]):
                             row_c[j].metric(lbl, val)
+                            
+                    # Nubes en lista para el decodificador manual
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("**☁️ Cobertura de Nubes:**")
+                    nubes_str = dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')
+                    if nubes_str in ['CAVOK', '—', 'Despejado', 'Sin Nubes']:
+                        st.write(f"✅ {nubes_str}")
+                    else:
+                        for capa in nubes_str.split(" | "):
+                            st.markdown(f"- {capa}")
 
         # RESTAURADO: Explicación completa del TAF
         with tab2:
