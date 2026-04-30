@@ -703,7 +703,7 @@ def main_app():
         with tab1:
             with st.form("metar_search"):
                 col_s1, col_s2 = st.columns([3, 1])
-                icao_input = col_s1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL, EGLL, KJFK")
+                icao_input = col_s1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL, EGLL, KABQ")
                 buscar = col_s2.form_submit_button("Buscar Clima 🔎")
 
             if buscar and icao_input:
@@ -719,9 +719,9 @@ def main_app():
                     if metar_raw not in ("No disponible", "Error conexión"):
                         dec = decodificar_metar(metar_raw)
                         if dec.get('alerta_niebla'):
-                            st.warning("⚠️ Temp y punto de rocío muy cercanos — riesgo de niebla.")
+                            st.error("⚠️ Alerta: Temperatura y punto de rocío muy cercanos — Alto riesgo de niebla.")
                         
-                        # --- GRILLA SIN LAS NUBES ---
+                        # --- GRILLA PRINCIPAL (Solo números cortos) ---
                         campos = [
                             ("📍 Estación",    dec.get('estacion',    '—')),
                             ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
@@ -731,30 +731,33 @@ def main_app():
                             ("💧 Rocío",       dec.get('rocio',       '—')),
                             ("🧭 QNH",         dec.get('qnh',         '—')),
                         ]
-                        
-                        # Si hay fenómenos, ocupan el octavo lugar en la grilla para que quede par
-                        if dec.get('fenomenos'):
-                            campos.append(("⛈️ Fenómenos", dec['fenomenos']))
                             
                         for i in range(0, len(campos), 4):
                             row_c = st.columns(4)
                             for j, (lbl, val) in enumerate(campos[i:i+4]):
                                 row_c[j].metric(lbl, val)
                                 
-                        # --- NUBES EN LISTA HACIA ABAJO ---
+                        # --- BLOQUE DE CONDICIONES ESPECIALES (Cajas de color que no cortan el texto) ---
                         st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown("**☁️ Cobertura de Nubes:**")
-                        nubes_str = dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')
+                        c_nub, c_fen = st.columns(2)
                         
-                        if nubes_str in ['CAVOK', '—', 'Despejado', 'Sin Nubes']:
-                            st.write(f"✅ {nubes_str}")
-                        else:
-                            # Cortamos el texto por la barrita y creamos la lista
-                            for capa in nubes_str.split(" | "):
-                                st.markdown(f"- {capa}")
+                        with c_nub:
+                            nubes_str = dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')
+                            if nubes_str in ['CAVOK', '—', 'Despejado', 'Sin Nubes', 'Cielo despejado']:
+                                st.success(f"**☁️ Nubes:** {nubes_str}")
+                            else:
+                                # Reemplazamos las barras por comas para que fluya como oración
+                                nubes_texto = nubes_str.replace(' | ', ', ')
+                                st.info(f"**☁️ Nubes:** {nubes_texto}")
+                                
+                        with c_fen:
+                            if dec.get('fenomenos'):
+                                st.warning(f"**⛈️ Fenómenos:** {dec['fenomenos']}")
+                            else:
+                                st.success("**⛈️ Fenómenos:** Ninguno")
                                 
                         if dec.get('tendencia'):
-                            st.info(f"**Tendencia:** `{dec['tendencia']}`")
+                            st.info(f"**📈 Tendencia:** `{dec['tendencia']}`")
                             
                     st.divider()
                     
@@ -775,7 +778,6 @@ def main_app():
             if metar_manual.strip():
                 dec = decodificar_metar(metar_manual.strip())
                 if dec:
-                    # Grilla manual sin nubes
                     campos_m = [
                         ("📍 Estación",    dec.get('estacion',    '—')),
                         ("💨 Viento",      dec.get('viento',      '—')),
@@ -789,15 +791,12 @@ def main_app():
                         for j, (lbl, val) in enumerate(campos_m[i:i+3]):
                             row_c[j].metric(lbl, val)
                             
-                    # Nubes en lista para el decodificador manual
                     st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("**☁️ Cobertura de Nubes:**")
                     nubes_str = dec.get('nubes', 'CAVOK' if dec.get('cavok') else '—')
                     if nubes_str in ['CAVOK', '—', 'Despejado', 'Sin Nubes']:
-                        st.write(f"✅ {nubes_str}")
+                        st.success(f"**☁️ Nubes:** {nubes_str}")
                     else:
-                        for capa in nubes_str.split(" | "):
-                            st.markdown(f"- {capa}")
+                        st.info(f"**☁️ Nubes:** {nubes_str.replace(' | ', ', ')}")
 
         # RESTAURADO: Explicación completa del TAF
         with tab2:
