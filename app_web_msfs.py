@@ -342,72 +342,82 @@ def decodificar_metar(metar_raw):
     resultado = {}
     tokens = metar_raw.strip().split()
     if not tokens: return resultado
-    idx = 0
-    if re.match(r'^[A-Z]{4}$', tokens[idx]):
-        resultado['estacion'] = tokens[idx]
-        idx += 1
-    if idx < len(tokens) and re.match(r'^\d{6}Z$', tokens[idx]):
-        resultado['fecha_hora'] = f"Día {tokens[idx][0:2]}, {tokens[idx][2:4]}:{tokens[idx][4:6]} UTC"
-        idx += 1
-    if idx < len(tokens) and tokens[idx] in ('AUTO', 'COR'): idx += 1
     
-    if idx < len(tokens):
-        m = re.match(r'^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?(KT|MPS|KMH)$', tokens[idx])
-        if m:
-            resultado['viento'] = f"{'Variable' if m.group(1) == 'VRB' else m.group(1)+'°'} a {m.group(2)} {m.group(5)}{', ráfagas '+m.group(4) if m.group(4) else ''}"
-            idx += 1
-            if idx < len(tokens) and re.match(r'^\d{3}V\d{3}$', tokens[idx]):
-                resultado['viento'] += f" (var {tokens[idx][:3]}°-{tokens[idx][4:]}°)"
-                idx += 1
-                
-    if idx < len(tokens) and tokens[idx] == 'CAVOK':
-        resultado['visibilidad'] = "> 10 km"
-        resultado['nubes'] = "CAVOK"
-        resultado['cavok'] = True
-        idx += 1
-    else:
-        if idx < len(tokens) and re.match(r'^(\d{4})$', tokens[idx]):
-            resultado['visibilidad'] = "> 10 km" if int(tokens[idx]) >= 9999 else f"{int(tokens[idx])} m"
-            idx += 1
+    # 1. Estación y Fecha
+    if re.match(r'^[A-Z0-9]{4}$', tokens[0]): resultado['estacion'] = tokens[0]
+    if len(tokens) > 1 and re.match(r'^\d{6}Z$', tokens[1]):
+        resultado['fecha_hora'] = f"Día {tokens[1][0:2]}, {tokens[1][2:4]}:{tokens[1][4:6]} UTC"
+
+    nubes = []
+    fenomenos = []
+    wx_codes = {'RA':'Lluvia', 'SN':'Nieve', 'GR':'Granizo', 'DZ':'Llovizna', 'FG':'Niebla', 'BR':'Neblina', 'HZ':'Bruma', 'TS':'Tormenta', 'VCTS':'Tormenta en vecindad'}
+
+    # 2. Leer cada bloque de forma independiente (si no entiende algo, lo salta sin romperse)
+    for i, tok in enumerate(tokens):
+        # Viento
+        m_viento = re.match(r'^(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?(KT|MPS|KMH)$', tok)
+        if m_viento:
+            v_dir = "Variable" if m_viento.group(1) == 'VRB' else f"{m_viento.group(1)}°"
+            v_vel = m_viento.group(2)
+            v_raf = f", ráfagas {m_viento.group(4)}" if m_viento.group(4) else ""
+            resultado['viento'] = f"{v_dir} a {v_vel} {m_viento.group(5)}{v_raf}"
+            if v_vel == "00" or v_vel == "000": resultado['viento'] = "Calma (0 KT)"
         
-        wx_codes = {'RA':'Lluvia', 'SN':'Nieve', 'GR':'Granizo', 'DZ':'Llovizna', 'FG':'Niebla', 'BR':'Neblina', 'HZ':'Bruma', 'TS':'Tormenta'}
-        fenomenos = []
-        while idx < len(tokens):
-            desc, t_body, pfx = None, tokens[idx].lstrip('-+'), 'Ligero' if tokens[idx].startswith('-') else ('Fuerte' if tokens[idx].startswith('+') else '')
-            for code, name in wx_codes.items():
-                if t_body.startswith(code) or code in t_body: desc = f"{pfx} {name}".strip()
-            if desc:
-                fenomenos.append(desc)
-                idx += 1
-            else: break
-        if fenomenos: resultado['fenomenos'] = ", ".join(fenomenos)
-
-        nubes = []
-        while idx < len(tokens):
-            m = re.match(r'^(FEW|SCT|BKN|OVC|NSC|SKC|NCD|VV)(\d{3})?', tokens[idx])
-            if m:
-                cmap = {'FEW':'Escasas', 'SCT':'Dispersas', 'BKN':'Fragmentadas', 'OVC':'Cubierto', 'NSC':'Sin Nubes', 'SKC':'Despejado'}
-                nubes.append(f"{cmap.get(m.group(1), m.group(1))}{' a '+str(int(m.group(2))*100)+' ft' if m.group(2) else ''}")
-                idx += 1
-            else: break
-        if nubes: resultado['nubes'] = " | ".join(nubes)
-
-    if idx < len(tokens):
-        m = re.match(r'^(M?\d{2})/(M?\d{2})$', tokens[idx])
-        if m:
-            resultado['temperatura'] = f"-{m.group(1)[1:]}°C" if 'M' in m.group(1) else f"{m.group(1)}°C"
-            resultado['rocio'] = f"-{m.group(2)[1:]}°C" if 'M' in m.group(2) else f"{m.group(2)}°C"
-            if abs(int(m.group(1).replace('M','-')) - int(m.group(2).replace('M','-'))) <= 2: resultado['alerta_niebla'] = True
-            idx += 1
-
-    if idx < len(tokens):
-        m = re.match(r'^(Q|A)(\d{4})$', tokens[idx])
-        if m:
-            resultado['qnh'] = f"{m.group(2)} hPa" if m.group(1)=='Q' else f"{int(m.group(2))/100:.2f} inHg"
-            idx += 1
+        # CAVOK
+        if tok == 'CAVOK':
+            resultado['visibilidad'] = "> 10 km"
+            resultado['nubes'] = "CAVOK"
+            resultado['cavok'] = True
             
-    resto = " ".join(tokens[idx:])
-    if resto: resultado['tendencia'] = resto
+        # Visibilidad métrica (ej: 9999, 0800)
+        if re.match(r'^(\d{4})$', tok) and tok not in [tokens[0], tokens[1]]:
+            if int(tok) >= 9999: resultado['visibilidad'] = "> 10 km"
+            else: resultado['visibilidad'] = f"{int(tok)} m"
+            
+        # Visibilidad imperial/US (ej: 10SM, 2SM, 1/2SM)
+        if re.match(r'^M?\d+(?:/\d+)?SM$', tok):
+            resultado['visibilidad'] = tok
+        elif tok == 'SM' and i > 0: 
+            resultado['visibilidad'] = f"{tokens[i-1]} SM"
+
+        # Fenómenos climáticos
+        desc, t_body, pfx = None, tok.lstrip('-+'), 'Ligero ' if tok.startswith('-') else ('Fuerte ' if tok.startswith('+') else '')
+        for code, name in wx_codes.items():
+            if t_body == code or t_body.startswith(code): 
+                desc = f"{pfx}{name}".strip()
+        if desc and not re.match(r'^(FEW|SCT|BKN|OVC)', tok):
+            fenomenos.append(desc)
+
+        # Nubes
+        m_nubes = re.match(r'^(FEW|SCT|BKN|OVC|NSC|SKC|NCD|VV)(\d{3})?', tok)
+        if m_nubes:
+            cmap = {'FEW':'Escasas', 'SCT':'Dispersas', 'BKN':'Fragmentadas', 'OVC':'Cubierto', 'NSC':'Sin Nubes', 'SKC':'Despejado', 'VV':'Vis. Vertical'}
+            alt = f" a {int(m_nubes.group(2))*100} ft" if m_nubes.group(2) else ""
+            nubes.append(f"{cmap.get(m_nubes.group(1), m_nubes.group(1))}{alt}")
+
+        # Temp / Rocío
+        m_temp = re.match(r'^(M?\d{2})/(M?\d{2})?$', tok)
+        if m_temp:
+            resultado['temperatura'] = f"-{m_temp.group(1)[1:]}°C" if 'M' in m_temp.group(1) else f"{m_temp.group(1)}°C"
+            if m_temp.group(2):
+                resultado['rocio'] = f"-{m_temp.group(2)[1:]}°C" if 'M' in m_temp.group(2) else f"{m_temp.group(2)}°C"
+                try:
+                    t = int(m_temp.group(1).replace('M','-'))
+                    d = int(m_temp.group(2).replace('M','-'))
+                    if abs(t - d) <= 2: resultado['alerta_niebla'] = True
+                except: pass
+
+        # QNH / Altimetro
+        m_qnh = re.match(r'^(Q|A)(\d{4})$', tok)
+        if m_qnh:
+            resultado['qnh'] = f"{m_qnh.group(2)} hPa" if m_qnh.group(1)=='Q' else f"{int(m_qnh.group(2))/100:.2f} inHg"
+
+    # Consolidar listas
+    if nubes and 'nubes' not in resultado: 
+        resultado['nubes'] = " | ".join(nubes)
+    if fenomenos:
+        resultado['fenomenos'] = ", ".join(list(set(fenomenos)))
+
     return resultado
 
 def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
