@@ -20,41 +20,6 @@ AIRPORT_COORDS_FALLBACK = {
     "NTAA": [-17.5536, -149.6070]
 }
 
-AEROLINEAS_BASE = sorted([
-    "Aer Lingus", "Aeroflot", "Aerolíneas Argentinas", "Aeroméxico", "Air Canada", "Air China",
-    "Air Corsica", "Air Europa", "Air France", "Air India", "Air Mauritius", "Air New Zealand",
-    "Air Transat", "Alaska Airlines", "Air Cairo", "Alitalia (ITA Airways)", "All Nippon Airways (ANA)",
-    "American Airlines", "Asiana Airlines", "Atlas Air (Cargo)", "Austrian Airlines", "Avianca",
-    "Azul Brazilian Airlines", "Boliviana de Aviación", "British Airways", "Brussels Airlines",
-    "Cathay Pacific", "Cebu Pacific", "China Airlines", "China Eastern Airlines",
-    "China Southern Airlines", "Copa Airlines", "Delta Air Lines", "Delta Connection",
-    "DHL Aviation", "EasyJet", "EasyJet Europe", "EgyptAir", "El Al", "Emirates",
-    "Ethiopian Airlines", "Etihad Airways", "Eurowings", "EVA Air", "FedEx Express", "Finnair",
-    "Flydubai", "Frontier Airlines", "Garuda Indonesia", "GOL Linhas Aéreas", "Gulf Air",
-    "Hainan Airlines", "Hawaiian Airlines", "Iberia", "Icelandair", "IndiGo",
-    "Japan Airlines (JAL)", "JetBlue", "Jetstar", "JetSmart", "Juneyao Air", "Kenya Airways",
-    "KLM", "Korean Air", "LATAM Airlines", "LATAM Airlines Brasil", "Lion Air",
-    "LOT Polish Airlines", "Lufthansa", "Malaysia Airlines", "Norwegian Air Shuttle", "Oman Air",
-    "Philippine Airlines", "Qantas", "Qatar Airways", "Rossiya Airlines", "Royal Air Maroc",
-    "Royal Jordanian", "Ryanair", "SAS (Scandinavian Airlines)", "Saudia", "Scoot",
-    "Singapore Airlines", "Sky Airline", "South African Airways", "Southwest Airlines",
-    "SpiceJet", "Spirit Airlines", "SriLankan Airlines", "Starlux Airlines",
-    "Swiss International Air Lines", "TAP Air Portugal", "Thai Airways", "Turkish Airlines",
-    "Uganda Airlines", "United Airlines", "UPS Airlines", "VietJet Air", "Vietnam Airlines",
-    "Virgin Atlantic", "Virgin Australia", "Volaris", "Vueling", "WestJet", "Wizz Air",
-    "XiamenAir", "Peach Aviation"
-])
-
-AVIONES_DINAMICOS = [
-    "Avro RJ/BAe 146", "ATR 42-600", "ATR 72-600", "Airbus A319", "Airbus A320",
-    "Airbus A320 Neo", "Airbus A321", "Airbus A321 Neo", "Airbus A330-900", "Airbus A340-600",
-    "Airbus A350-900", "Airbus A350-1000", "Airbus A380-800", "Boeing 737-600", "Boeing 737-700",
-    "Boeing 737-800", "Boeing 737 MAX 8", "Boeing 737-900", "Boeing 747-8", "Boeing 777-200",
-    "Boeing 777-200LR", "Boeing 777-300ER", "Boeing 777F", "Boeing 787-8", "Boeing 787-9",
-    "Boeing 787-10", "Embraer E170", "Embraer E175", "Embraer E190", "Embraer E195",
-    "Sukhoi SuperJet 100"
-]
-
 CHECKLISTS_DB = {
     "Airbus (Familia A320/A330)": {
         "Cockpit Prep": ["Batteries 1 & 2: ON", "Ext Pwr: ON (if avail)", "ADIRS: NAV", "Ext Lt: NAV/LOGO"],
@@ -569,17 +534,13 @@ def main_app():
     # --- CSS PARA OCULTAR LA BARRA DEL SIDEBAR ---
     st.markdown("""
         <style>
-        /* Ocultar barra en Chrome, Safari y Opera */
-        [data-testid="stSidebar"] ::-webkit-scrollbar {
-            display: none;
-        }
-        /* Ocultar barra en Firefox, IE y Edge */
-        [data-testid="stSidebar"] {
-            scrollbar-width: none;
-            -ms-overflow-style: none;
+        /* Bloquear el scroll por completo en el menú lateral */
+        [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
+            overflow-y: hidden !important;
         }
         </style>
     """, unsafe_allow_html=True)
+    # ---------------------------------------------
     # ---------------------------------------------
 
     modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
