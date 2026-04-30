@@ -566,6 +566,22 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
 def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
 
+    # --- CSS PARA OCULTAR LA BARRA DEL SIDEBAR ---
+    st.markdown("""
+        <style>
+        /* Ocultar barra en Chrome, Safari y Opera */
+        [data-testid="stSidebar"] ::-webkit-scrollbar {
+            display: none;
+        }
+        /* Ocultar barra en Firefox, IE y Edge */
+        [data-testid="stSidebar"] {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    # ---------------------------------------------
+
     modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
     if modo_grande:
         st.markdown("""
