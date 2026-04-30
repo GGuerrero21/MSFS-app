@@ -1059,6 +1059,22 @@ def main_app():
                                         st.error("🚫 Contiene aviso de CIERRE (Closed).")
                                     elif "U/S" in notam or "UNSERVICEABLE" in notam:
                                         st.warning("⚠️ Contiene aviso de equipo INOPERATIVO (Unserviceable).")
+# =========================================================
+    # 5. VUELOS ALEATORIOS (BASE DE DATOS PROPIA)
+    # =========================================================
+    elif menu == "🎲 Vuelos Aleatorios":
+        import random
+        st.header("🎲 Centro de Rutas")
+        st.caption("Tu base de datos personal de vuelos reales para simular.")
+
+        # 👇 ESTA ES LA LÍNEA CLAVE QUE SE TE HABÍA BORRADO 👇
+        tab_gen, tab_add, tab_admin = st.tabs(["🎲 Generar Vuelo", "➕ Añadir a la Base", "✏️ Administrar Base"])
+        
+        df_rutas = leer_rutas_aleatorias()
+
+        # ── 1. PESTAÑA GENERAR ──
+        with tab_gen:
+            # ... acá sigue tu código normal ...
 # ── 2. PESTAÑA AÑADIR ──
         with tab_add:
             st.subheader("➕ Guardar nuevo vuelo en la base")
