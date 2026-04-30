@@ -1113,12 +1113,31 @@ def main_app():
                 else:
                     for i, row in df_display.iterrows():
                         with st.container():
-                            cols = st.columns([2, 2, 2, 2, 1, 1])
+                            # Ajustamos las proporciones para darle más espacio a la info combinada
+                            cols = st.columns([1.5, 1.5, 2.5, 2, 2, 1])
+                            
                             cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
                             cols[1].write(f"{row.get('Fecha','')}")
-                            cols[2].write(f"{row.get('Aerolinea','')}")
+                            
+                            # Aerolínea + N° de Vuelo en negrita
+                            aero = row.get('Aerolinea', '')
+                            num = row.get('Num_Vuelo', '')
+                            texto_vuelo = f"{aero} **{num}**" if num else aero
+                            cols[2].write(texto_vuelo)
+                            
                             cols[3].write(f"{row.get('Modelo_Avion','')}")
-                            cols[4].write(f"{row.get('Tiempo_Vuelo_Horas','')}h")
+                            
+                            # Tiempo + Toque de Aterrizaje (FPM)
+                            tiempo = row.get('Tiempo_Vuelo_Horas', '')
+                            try:
+                                fpm = int(float(row.get('Landing_Rate_FPM', 0)))
+                                fpm_str = f"🛬 {fpm} fpm"
+                            except:
+                                fpm_str = "🛬 -- fpm"
+                                
+                            cols[4].write(f"⏱️ {tiempo}h | {fpm_str}")
+                            
+                            # Botón de eliminar
                             if cols[5].button("🗑️", key=f"del_{i}", help="Eliminar este vuelo"):
                                 st.session_state[f"confirm_del_{i}"] = True
 
