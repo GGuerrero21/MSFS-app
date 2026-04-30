@@ -415,16 +415,32 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
     theta = math.radians(diff)
     return abs(math.sin(theta) * wind_spd), math.cos(theta) * wind_spd
 
-def obtener_notams(icao_code, api_key):
-    if not icao_code or len(icao_code) != 4: return None, "❌ Código ICAO inválido."
+def obtener_notams(icao_code):
+    """Obtiene los NOTAMs reales usando AviationAPI (100% gratuita, sin API Key)."""
+    if not icao_code or len(icao_code) != 4: 
+        return None, "❌ Código ICAO inválido."
     try:
-        r = requests.get(f"https://api.checkwx.com/notam/{icao_code.upper()}", headers={"X-API-Key": api_key}, timeout=10)
+        # Consultamos la API pública de AviationAPI
+        r = requests.get(f"https://api.aviationapi.com/v1/notams?icao={icao_code.upper()}", timeout=10)
+        
         if r.status_code == 200:
             data = r.json()
-            return data.get("data", []), None if data.get("results") > 0 else f"No hay NOTAMs activos para {icao_code.upper()}."
-        elif r.status_code == 401: return None, "❌ API Key de CheckWX inválida."
-        return None, f"Error del servidor (Cod: {r.status_code})."
-    except Exception as e: return None, f"Error de conexión: {str(e)}"
+            notams_list = []
+            
+            # La API devuelve un diccionario ej: {"SCEL": [ {"notam": "texto..."}, ... ]}
+            if isinstance(data, dict):
+                lista = data.get(icao_code.upper(), [])
+                for n in lista:
+                    if isinstance(n, dict) and "notam" in n:
+                        notams_list.append(n["notam"])
+                    else:
+                        notams_list.append(str(n))
+                        
+            return notams_list, None if notams_list else f"No hay NOTAMs activos reportados para {icao_code.upper()}."
+        else: 
+            return None, f"Error del servidor (Cod: {r.status_code}). La API está caída."
+    except Exception as e: 
+        return None, f"Error de conexión: {str(e)}"
 
 # =========================================================
 # 4. INTERFAZ PRINCIPAL
@@ -695,22 +711,37 @@ def main_app():
             st.markdown("**BECMG**: Cambio gradual permanente. | **TEMPO**: Cambio temporal. | **FM**: Cambio rápido desde esa hora. | **PROB30/40**: Probabilidad.")
         with tab3:
             st.markdown("**Nubes:** `FEW` (1-2/8), `SCT` (3-4/8), `BKN` (5-7/8), `OVC` (8/8).")
+# ---- TAB 4: NOTAMs REALES ----
         with tab4:
             st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
+            st.caption("Los NOTAMs contienen información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
+            
             with st.form("form_notam"):
-                c_n1, c_n2 = st.columns([1, 2])
-                icao_notam = c_n1.text_input("Código ICAO", max_chars=4).upper()
-                api_key_checkwx = c_n2.text_input("🔑 CheckWX API Key", type="password")
-                if st.form_submit_button("📡 Descargar"):
-                    if not api_key_checkwx or not icao_notam: st.warning("Completá todos los campos.")
+                icao_notam = st.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL").upper()
+                
+                if st.form_submit_button("📡 Descargar NOTAMs"):
+                    if not icao_notam: 
+                        st.warning("Completá el código ICAO primero.")
                     else:
-                        notams, error = obtener_notams(icao_notam, api_key_checkwx)
-                        if error: st.error(error)
-                        elif not notams: st.info("Sin NOTAMs activos.")
-                        else:
-                            st.success(f"{len(notams)} NOTAMs para {icao_notam}.")
-                            for idx, nt in enumerate(notams):
-                                with st.expander(f"NOTAM {idx + 1}"): st.code(nt, language=None)
+                        with st.spinner(f"Descargando NOTAMs oficiales para {icao_notam}..."):
+                            # Ya no pasamos ninguna API Key
+                            notams, error = obtener_notams(icao_notam)
+                            
+                            if error: 
+                                st.error(error)
+                            elif not notams: 
+                                st.info(f"✅ Sin avisos. No hay NOTAMs activos reportados para {icao_notam}.")
+                            else:
+                                st.success(f"Se encontraron {len(notams)} NOTAMs activos para {icao_notam}.")
+                                
+                                for idx, nt in enumerate(notams):
+                                    with st.expander(f"NOTAM {idx + 1}"): 
+                                        st.code(nt, language=None)
+                                        # Alerta de colores según el contenido
+                                        if "CLOSED" in nt or "CLSD" in nt:
+                                            st.error("🚫 Contiene aviso de CIERRE (Closed).")
+                                        elif "U/S" in nt or "UNSERVICEABLE" in nt:
+                                            st.warning("⚠️ Contiene aviso de equipo INOPERATIVO (Unserviceable).")
 
     # =========================================================
     # VUELOS ALEATORIOS 
