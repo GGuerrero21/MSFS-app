@@ -45,7 +45,7 @@ AEROLINEAS_BASE = sorted([
     "XiamenAir", "Peach Aviation"
 ])
 
-MODELOS_AVION = [
+AVIONES_DINAMICOS = [
     "Avro RJ/BAe 146", "ATR 42-600", "ATR 72-600", "Airbus A319", "Airbus A320",
     "Airbus A320 Neo", "Airbus A321", "Airbus A321 Neo", "Airbus A330-900", "Airbus A340-600",
     "Airbus A350-900", "Airbus A350-1000", "Airbus A380-800", "Boeing 737-600", "Boeing 737-700",
@@ -218,6 +218,76 @@ def actualizar_ruta_gs(row_index, row_data):
             st.error(e)
             return False
     return False
+# --- FUNCIONES PARA CONFIGURACIÓN (AEROLÍNEAS Y AVIONES) ---
+
+@st.cache_resource
+def conectar_gs_config():
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
+        client = gspread.authorize(creds)
+        doc = client.open("FlightLogbook")
+        try:
+            sheet = doc.worksheet("Configuracion")
+        except gspread.exceptions.WorksheetNotFound:
+            # Si no existe, la crea y vuelca los datos base para que no pierdas nada
+            sheet = doc.add_worksheet(title="Configuracion", rows="1000", cols="2")
+            col_a = [["Aerolineas"]] + [[a] for a in AEROLINEAS_BASE]
+            col_b = [["Aviones"]] + [[a] for a in AVIONES_DINAMICOS]
+            try:
+                sheet.update(f"A1:A{len(col_a)}", col_a)
+                sheet.update(f"B1:B{len(col_b)}", col_b)
+            except:
+                pass # Por si la versión de gspread es distinta, crea la hoja igual
+        return sheet
+    except Exception as e:
+        st.error(f"Error conectando a Configuración: {e}")
+        return None
+
+@st.cache_data(ttl=10)
+def leer_configuracion():
+    sheet = conectar_gs_config()
+    aero_list, avion_list = [], []
+    if sheet:
+        try:
+            data = sheet.get_all_records()
+            for row in data:
+                if row.get("Aerolineas"): aero_list.append(str(row["Aerolineas"]).strip())
+                if row.get("Aviones"): avion_list.append(str(row["Aviones"]).strip())
+        except Exception:
+            pass
+    
+    # Fallback de seguridad
+    if not aero_list: aero_list = AEROLINEAS_BASE
+    if not avion_list: avion_list = AVIONES_DINAMICOS
+    
+    # Retorna las listas limpias, ordenadas y sin vacíos
+    return sorted([x for x in set(aero_list) if x]), sorted([x for x in set(avion_list) if x])
+
+def agregar_item_config(columna, valor):
+    sheet = conectar_gs_config()
+    if sheet:
+        try:
+            col_idx = 1 if columna == "Aerolineas" else 2
+            valores = sheet.col_values(col_idx)
+            sheet.update_cell(len(valores) + 1, col_idx, valor)
+            leer_configuracion.clear()
+            return True
+        except Exception: return False
+    return False
+
+def eliminar_item_config(columna, valor):
+    sheet = conectar_gs_config()
+    if sheet:
+        try:
+            col_idx = 1 if columna == "Aerolineas" else 2
+            valores = sheet.col_values(col_idx)
+            if valor in valores:
+                fila = valores.index(valor) + 1
+                sheet.update_cell(fila, col_idx, "") # Lo borramos dejándolo en blanco
+                leer_configuracion.clear()
+                return True
+        except Exception: return False
+    return False
 
 # --- 3. FUNCIONES LÓGICAS ---
 
@@ -290,11 +360,8 @@ def obtener_datos_simbrief(username):
         return None, f"Excepción: {e}"
 
 def obtener_aerolineas_inteligente():
-    """
-    Combina la lista base con aerolíneas guardadas en el sheet,
-    incluyendo las agregadas manualmente por el usuario.
-    """
-    lista = set(AEROLINEAS_BASE)
+    lista_db, _ = leer_configuracion()
+    lista = set(lista_db)
     df = leer_vuelos()
     if not df.empty and 'Aerolinea' in df.columns:
         for a in df['Aerolinea'].dropna().unique():
@@ -555,8 +622,11 @@ def main_app():
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
         "📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa",
-        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas", "📊 Estadísticas"
+        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas", "📊 Estadísticas", "⚙️ Configuración"
     ])
+
+    # Leemos la base de datos en vivo
+    _, AVIONES_DINAMICOS = leer_configuracion()
 
     # =========================================================
     # 1. REGISTRO DE VUELO
@@ -626,7 +696,7 @@ def main_app():
                 fecha = st.date_input("Fecha", value=datetime.now())
                 origen = st.text_input("Origen (ICAO)", value=st.session_state.form_data["origen"]).upper()
                 destino = st.text_input("Destino (ICAO)", value=st.session_state.form_data["destino"]).upper()
-                modelo = st.selectbox("Avión", MODELOS_AVION)
+                modelo = st.selectbox("Avión", AVIONES_DINAMICOS)
             with c2:
                 h_out = st.time_input("Hora OUT (UTC)", value=time(12, 0), step=60)
                 h_in = st.time_input("Hora IN (UTC)", value=time(14, 0), step=60)
@@ -1029,7 +1099,7 @@ def main_app():
                 callsign = c4.text_input("Número de Vuelo / Callsign (ej. LA400)")
                 
                 c5, c6 = st.columns(2)
-                avion = c5.selectbox("Modelo de Avión", MODELOS_AVION)
+                avion = c5.selectbox("Modelo de Avión", AVIONES_DINAMICOS)
                 # Reemplazamos el selectbox por un toggle opcional
                 es_desafiante = c6.toggle("🌟 Marcar como ruta Desafiante/Especial", help="Activalo solo si es una ruta escénica o peligrosa. Si no, se categorizará automáticamente por tiempo.")
 
@@ -1242,6 +1312,45 @@ def main_app():
                         st.divider()
         else:
             st.info("Registra tu primer vuelo para ver las estadísticas.")
+# =========================================================
+    # 7. CONFIGURACIÓN
+    # =========================================================
+    elif menu == "⚙️ Configuración":
+        st.header("⚙️ Configuración de Flota y Aerolíneas")
+        st.caption("Los cambios acá se guardan en tu Google Sheets y actualizan todos los menús de la app.")
 
+        aeros_db, aviones_db = leer_configuracion()
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.subheader("✈️ Aerolíneas")
+            nueva_aero = st.text_input("Agregar nueva aerolínea")
+            if st.button("➕ Añadir Aerolínea", use_container_width=True) and nueva_aero:
+                if agregar_item_config("Aerolineas", nueva_aero.strip()):
+                    st.success(f"{nueva_aero} agregada!")
+                    st.rerun()
+
+            st.divider()
+            aero_eliminar = st.selectbox("Eliminar Aerolínea", ["Seleccionar..."] + aeros_db)
+            if st.button("🗑️ Eliminar", key="del_aero", use_container_width=True) and aero_eliminar != "Seleccionar...":
+                if eliminar_item_config("Aerolineas", aero_eliminar):
+                    st.success(f"{aero_eliminar} eliminada!")
+                    st.rerun()
+
+        with c2:
+            st.subheader("🛩️ Modelos de Avión")
+            nuevo_avion = st.text_input("Agregar nuevo avión")
+            if st.button("➕ Añadir Avión", use_container_width=True) and nuevo_avion:
+                if agregar_item_config("Aviones", nuevo_avion.strip()):
+                    st.success(f"{nuevo_avion} agregado!")
+                    st.rerun()
+
+            st.divider()
+            avion_eliminar = st.selectbox("Eliminar Avión", ["Seleccionar..."] + aviones_db)
+            if st.button("🗑️ Eliminar", key="del_avion", use_container_width=True) and avion_eliminar != "Seleccionar...":
+                if eliminar_item_config("Aviones", avion_eliminar):
+                    st.success(f"{avion_eliminar} eliminado!")
+                    st.rerun()
 if __name__ == "__main__":
     main_app()
