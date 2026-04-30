@@ -416,35 +416,18 @@ def calcular_viento_cruzado(wind_dir, wind_spd, rwy_heading):
     return abs(math.sin(theta) * wind_spd), math.cos(theta) * wind_spd
 
 def obtener_notams(icao_code, api_key):
-    """Obtiene los NOTAMs reales usando AVWX API (Súper estable)."""
+    """Obtiene los NOTAMs reales usando CheckWX API."""
     if not icao_code or len(icao_code) != 4: return None, "❌ Código ICAO inválido."
-    
-    # 🛠️ CORRECCIÓN: La URL es avwx.rest (sin el "api." al principio)
-    url = f"https://avwx.rest/api/notam/{icao_code.upper()}"
-    headers = {"Authorization": f"Token {api_key}"}
-    
     try:
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(f"https://api.checkwx.com/v1/notam/{icao_code.upper()}", headers={"X-API-Key": api_key}, timeout=10)
+        
         if r.status_code == 200:
             data = r.json()
-            notams_list = []
-            
-            # AVWX devuelve una lista directa de objetos
-            lista_cruda = data if isinstance(data, list) else data.get("data", [])
-            
-            for n in lista_cruda:
-                if isinstance(n, dict) and "raw" in n:
-                    notams_list.append(n["raw"])
-                elif isinstance(n, str):
-                    notams_list.append(n)
-                    
-            return notams_list, None if notams_list else f"No hay NOTAMs activos para {icao_code.upper()}."
-        elif r.status_code in (401, 403): 
-            return None, "❌ Token de AVWX inválido o expirado."
-        else: 
-            return None, f"Error del servidor (Cod: {r.status_code})."
-    except Exception as e: 
-        return None, f"Error de conexión: {str(e)}"
+            return data.get("data", []), None if data.get("results") > 0 else f"No hay NOTAMs activos para {icao_code.upper()}."
+        elif r.status_code == 401: return None, "❌ API Key de CheckWX inválida."
+        
+        return None, f"Error del servidor (Cod: {r.status_code})."
+    except Exception as e: return None, f"Error de conexión: {str(e)}"
 
 # =========================================================
 # 4. INTERFAZ PRINCIPAL
@@ -877,21 +860,22 @@ def main_app():
                     """)
 
 # ---- TAB 4: NOTAMS REALES ----
+# ---- TAB 4: NOTAMS REALES ----
         with tab4:
             st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
-            st.caption("Conectado a AVWX API. Información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
+            st.caption("Los NOTAMs contienen información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
             
             with st.form("form_notam"):
                 c_n1, c_n2 = st.columns([1, 2])
                 icao_notam = c_n1.text_input("Código ICAO", max_chars=4, placeholder="Ej: SCEL").upper()
-                api_key_avwx = c_n2.text_input("🔑 AVWX API Token", type="password", help="Registrate gratis en avwx.rest para obtener tu Token")
+                api_key_checkwx = c_n2.text_input("🔑 CheckWX API Key", type="password", help="Tu clave original de checkwxapi.com")
                 
                 if st.form_submit_button("📡 Descargar NOTAMs"):
-                    if not api_key_avwx or not icao_notam: 
-                        st.warning("Completá el ICAO y tu Token de AVWX.")
+                    if not api_key_checkwx or not icao_notam: 
+                        st.warning("Completá el código ICAO y tu API Key.")
                     else:
                         with st.spinner(f"Descargando NOTAMs oficiales para {icao_notam}..."):
-                            notams, error = obtener_notams(icao_notam, api_key_avwx)
+                            notams, error = obtener_notams(icao_notam, api_key_checkwx)
                             
                             if error: 
                                 st.error(error)
@@ -903,12 +887,10 @@ def main_app():
                                 for idx, nt in enumerate(notams):
                                     with st.expander(f"NOTAM {idx + 1}"): 
                                         st.code(nt, language=None)
-                                        # Filtro inteligente de palabras clave críticas
                                         if "CLOSED" in nt or "CLSD" in nt:
                                             st.error("🚫 Contiene aviso de CIERRE (Closed).")
                                         elif "U/S" in nt or "UNSERVICEABLE" in nt:
                                             st.warning("⚠️ Contiene aviso de equipo INOPERATIVO (Unserviceable).")
-
     # =========================================================
     # VUELOS ALEATORIOS 
     # =========================================================
