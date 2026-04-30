@@ -761,21 +761,36 @@ def main_app():
         if st.button("Reset"):
             st.rerun()
 
-   # =========================================================
+# =========================================================
     # 3. MAPA Y EXPLORADOR DE RUTAS
     # =========================================================
     elif menu == "🗺️ Mapa":
+        from folium.plugins import Terminator
+        
         st.header("🗺️ Explorador Global de Rutas")
         df = leer_vuelos()
         
+        # --- Función oculta para descargar el radar en vivo (Se actualiza cada 5 mins) ---
+        @st.cache_data(ttl=300)
+        def obtener_url_radar():
+            try:
+                r = requests.get("https://api.rainviewer.com/public/weather-maps.json", timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    # Extraemos el "path" de la última imagen satelital disponible
+                    path = data['radar']['past'][-1]['path']
+                    # El '2' es la paleta de colores de lluvia clásica, '1_1' suaviza los bordes
+                    return f"https://tilecache.rainviewer.com{path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
+            except: pass
+            return None
+        # --------------------------------------------------------------------------------
+
         if not df.empty:
-            # Layout: Panel de controles a la izquierda, Mapa a la derecha
             c_ctrl, c_mapa = st.columns([1, 3.5])
             
             with c_ctrl:
                 st.subheader("🎛️ Filtros")
                 
-                # Filtros desplegables
                 aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
                 filtro_aero = st.selectbox("🏢 Aerolínea", aeros)
                 
@@ -783,50 +798,62 @@ def main_app():
                 filtro_avion = st.selectbox("🛩️ Avión", aviones)
                 
                 st.divider()
-                st.subheader("🎨 Estilos")
-                estilo_mapa = st.radio("Capa base del mapa:", ["Modo Oscuro", "Modo Claro", "Satélite"], label_visibility="collapsed")
-                mostrar_iconos = st.toggle("📍 Mostrar Aeropuertos", value=True)
+                st.subheader("🎨 Capas y Clima")
+                estilo_mapa = st.radio("Fondo:", ["Modo Oscuro", "Modo Claro", "Satélite"], label_visibility="collapsed")
                 
-                # Aplicar filtros a los datos
+                # --- NUEVOS CONTROLES DE CAPAS ---
+                mostrar_iconos = st.toggle("📍 Mostrar Aeropuertos", value=True)
+                mostrar_radar = st.toggle("🌧️ Radar de Lluvia en Vivo", value=False, help="Superpone el clima actual mundial usando RainViewer.")
+                mostrar_noche = st.toggle("🌓 Línea Día/Noche", value=False, help="Muestra la sombra del sol en tiempo real.")
+                
                 df_mapa = df.copy()
                 if filtro_aero != "Todas": df_mapa = df_mapa[df_mapa['Aerolinea'] == filtro_aero]
                 if filtro_avion != "Todos": df_mapa = df_mapa[df_mapa['Modelo_Avion'] == filtro_avion]
                 
                 st.divider()
                 
-                # Estadísticas dinámicas según lo filtrado
                 rutas_visibles = len(df_mapa)
-                if 'Distancia_NM' in df_mapa.columns:
-                    dist_total = pd.to_numeric(df_mapa['Distancia_NM'], errors='coerce').fillna(0).sum()
-                else:
-                    dist_total = 0
+                dist_total = pd.to_numeric(df_mapa['Distancia_NM'], errors='coerce').fillna(0).sum() if 'Distancia_NM' in df_mapa.columns else 0
                     
                 st.metric("Vuelos en pantalla", rutas_visibles)
                 st.metric("Distancia cubierta", f"{dist_total:,.0f} NM")
                 
             with c_mapa:
-                # Diccionario de estilos de mapa
                 tiles_dict = {
                     "Modo Oscuro": "CartoDB dark_matter",
                     "Modo Claro": "CartoDB positron",
                     "Satélite": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                 }
                 attr_dict = {
-                    "Satélite": "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+                    "Satélite": "Tiles &copy; Esri &mdash; Source: Esri..."
                 }
 
-                # Centrar el mapa en el último vuelo registrado, si no en el ecuador
                 centro = [20, 0]
                 if not df_mapa.empty:
                     ult_orig = str(df_mapa.iloc[-1].get('Origen', '')).strip()
                     c_ult = obtener_coords(ult_orig)
                     if c_ult: centro = c_ult
 
-                # Crear objeto mapa base
                 if estilo_mapa == "Satélite":
                     m = folium.Map(location=centro, zoom_start=3, tiles=tiles_dict[estilo_mapa], attr=attr_dict[estilo_mapa])
                 else:
                     m = folium.Map(location=centro, zoom_start=3, tiles=tiles_dict[estilo_mapa])
+
+                # --- AGREGAR LA SOMBRA DEL DÍA Y LA NOCHE ---
+                if mostrar_noche:
+                    Terminator().add_to(m)
+                
+                # --- AGREGAR EL RADAR DE LLUVIAS ---
+                if mostrar_radar:
+                    url_radar = obtener_url_radar()
+                    if url_radar:
+                        folium.TileLayer(
+                            tiles=url_radar,
+                            attr="RainViewer",
+                            name="Radar de Lluvia",
+                            overlay=True,
+                            opacity=0.65  # Nivel de transparencia de las tormentas
+                        ).add_to(m)
 
                 aeropuertos_dibujados = set()
                 
@@ -840,13 +867,8 @@ def main_app():
                     c2 = obtener_coords(destino)
                     
                     if c1 and c2:
-                        # Trazar la curva geodésica
                         ruta_curva = get_geodesic_path(c1[0], c1[1], c2[0], c2[1])
-                        
-                        # Info al pasar el mouse por la línea
                         tooltip_html = f"<div style='font-family:sans-serif; text-align:center;'><b>{aero}</b><br>{origen} ➡️ {destino}<br><span style='color:gray;font-size:11px;'>✈️ {avion}</span></div>"
-                        
-                        # Color dinámico según el estilo del mapa
                         color_linea = "#00f2fe" if estilo_mapa == "Modo Oscuro" else "#ff0844"
                         
                         folium.PolyLine(
@@ -857,7 +879,6 @@ def main_app():
                             tooltip=tooltip_html
                         ).add_to(m)
                         
-                        # Dibujar pines solo si está activado el toggle
                         if mostrar_iconos:
                             for apt_code, apt_coord in [(origen, c1), (destino, c2)]:
                                 if apt_code not in aeropuertos_dibujados:
@@ -873,7 +894,6 @@ def main_app():
                                     ).add_to(m)
                                     aeropuertos_dibujados.add(apt_code)
 
-                # returned_objects=[] evita que la app recargue los datos cada vez que movés el mapa
                 st_folium(m, width="100%", height=650, returned_objects=[]) 
 
         else:
