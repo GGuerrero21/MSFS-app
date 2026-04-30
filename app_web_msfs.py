@@ -1193,6 +1193,66 @@ def main_app():
                                     st.rerun()
                                 else:
                                     st.error("Error al eliminar.")
+
+    # =========================================================
+    # HERRAMIENTAS
+    # =========================================================
+    elif menu == "🧰 Herramientas":
+        st.header("🧰 Herramientas de Vuelo")
+        t1, t2, t3, t4 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor", "⛽ Combustible"])
+        with t1:
+            st.subheader("Calculadora de Viento Cruzado")
+            wc1, wc2, wc3 = st.columns(3)
+            wd = wc1.number_input("Dirección Viento (°)", 0, 360, 0)
+            ws = wc2.number_input("Velocidad Viento (kt)", 0, 100, 0)
+            rwy = wc3.number_input("Rumbo de Pista (°)", 0, 360, 0)
+            if ws > 0:
+                cw, hw = calcular_viento_cruzado(wd, ws, rwy)
+                col_r1, col_r2 = st.columns(2)
+                col_r1.metric("Viento Cruzado", f"{cw:.1f} kt")
+                col_r2.metric("Viento Cara/Cola", f"{hw:.1f} kt", delta="Favorável" if hw > 0 else "En cola")
+        with t2:
+            st.subheader("Calculadora TOD (Top of Descent)")
+            c_alt, c_tgt = st.columns(2)
+            alt_act = c_alt.number_input("Altitud Actual (ft)", value=35000, step=1000)
+            alt_tgt = c_tgt.number_input("Altitud Objetivo (ft)", value=3000, step=1000)
+            if alt_act > alt_tgt:
+                dist = (alt_act - alt_tgt) * 3 / 1000
+                st.success(f"📍 Iniciar descenso a **{dist:.0f} NM** del destino.")
+                st.caption("Regla de los 3: 3 NM por cada 1000 ft a descender.")
+        with t3:
+            st.subheader("Conversor Rápido")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                kg = st.number_input("Kg → Lbs", value=0.0, step=0.1)
+                st.caption(f"= **{kg * 2.20462:.1f} lbs**")
+                ft = st.number_input("Pies → Metros", value=0.0, step=100.0)
+                st.caption(f"= **{ft * 0.3048:.1f} m**")
+            with col_c2:
+                kt = st.number_input("Nudos → km/h", value=0.0, step=1.0)
+                st.caption(f"= **{kt * 1.852:.1f} km/h**")
+                nm = st.number_input("NM → km", value=0.0, step=1.0)
+                st.caption(f"= **{nm * 1.852:.1f} km**")
+        with t4:
+            st.subheader("⛽ Calculadora de Combustible")
+            st.caption("Planificación básica de combustible para simulación.")
+            fc1, fc2, fc3 = st.columns(3)
+            trip_fuel = fc1.number_input("Trip Fuel (kg)", value=5000, step=100)
+            cont_pct = fc2.slider("Contingencia (%)", 0, 10, 5)
+            altn_fuel = fc3.number_input("Alternado (kg)", value=1500, step=100)
+            final_rsv = st.number_input("Reserva Final (kg)", value=1500, step=100)
+            taxi_fuel = st.number_input("Taxi / Rodaje (kg)", value=200, step=50)
+
+            cont_fuel = trip_fuel * cont_pct / 100
+            min_fuel = trip_fuel + cont_fuel + altn_fuel + final_rsv
+            block_fuel = min_fuel + taxi_fuel
+
+            st.markdown("---")
+            r1, r2, r3, r4 = st.columns(4)
+            r1.metric("Contingencia", f"{cont_fuel:.0f} kg")
+            r2.metric("Mínimo Embarque", f"{min_fuel:.0f} kg")
+            r3.metric("Block Fuel", f"{block_fuel:.0f} kg")
+            r4.metric("Block Fuel (lbs)", f"{block_fuel * 2.205:.0f} lbs")
   # =========================================================
     # 6. ESTADÍSTICAS
     # =========================================================
