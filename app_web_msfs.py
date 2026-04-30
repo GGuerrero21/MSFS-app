@@ -286,8 +286,9 @@ def haversine_nm(lat1, lon1, lat2, lon2):
 def calcular_rango_xp(df):
     horas = 0
     if not df.empty and 'Tiempo_Vuelo_Horas' in df.columns:
-        df['Tiempo_Vuelo_Horas'] = pd.to_numeric(df['Tiempo_Vuelo_Horas'], errors='coerce').fillna(0)
-        horas = df['Tiempo_Vuelo_Horas'].sum()
+        # Sumamos usando la función inteligente que armamos
+        horas = sum(parse_tiempo_horas(x) for x in df['Tiempo_Vuelo_Horas'].dropna())
+    
     if horas < 10: return "Cadete", "🎓", horas, 10
     elif horas < 50: return "Primer Oficial", "👨‍✈️", horas, 50
     elif horas < 150: return "Capitán", "⭐⭐", horas, 150
@@ -334,7 +335,27 @@ def obtener_aerolineas_inteligente():
             if a_clean:
                 lista.add(a_clean)
     return sorted(list(lista))
+    
+def parse_tiempo_horas(val):
+    """Convierte tanto formatos 'HH:MM' como '2.5' a decimal para sumar estadísticas."""
+    val = str(val).strip()
+    if ':' in val:
+        try:
+            h, m = val.split(':')
+            return float(h) + float(m)/60.0
+        except: return 0.0
+    try: return float(val)
+    except: return 0.0
 
+def calcular_diferencia_hhmm(t_out, t_in):
+    """Calcula la diferencia entre dos objetos time y devuelve 'HH:MM', soportando cruce de medianoche."""
+    m_out = t_out.hour * 60 + t_out.minute
+    m_in = t_in.hour * 60 + t_in.minute
+    if m_in < m_out: 
+        m_in += 24 * 60 # Cruzó la medianoche (ej. salió 23:00, llegó 02:00)
+    diff = m_in - m_out
+    return f"{diff // 60:02d}:{diff % 60:02d}"
+    
 def obtener_coords(icao):
     if not isinstance(icao, str):
         return None
@@ -609,123 +630,111 @@ def main_app():
     # 1. REGISTRO DE VUELO
     # =========================================================
     if menu == "📋 Registro de Vuelo":
-        st.header("📋 Registrar Vuelo / SimBrief")
+        st.header("📋 Bitácora de Vuelo")
+        st.caption("Completá los datos del despacho. El tiempo de vuelo se calculará de forma automática bloque a bloque.")
 
         if 'form_data' not in st.session_state:
             st.session_state.form_data = {
                 "origen": "", "destino": "", "ruta": "", "no_vuelo": "",
-                "tiempo": 0.0, "puerta_salida": "", "puerta_llegada": ""
+                "puerta_salida": "", "puerta_llegada": ""
             }
 
         # --- SimBrief ---
-        with st.expander("📥 Importar desde SimBrief", expanded=True):
+        with st.expander("📥 Importar desde SimBrief", expanded=False):
             c1, c2 = st.columns([3, 1])
             sb_user = c1.text_input("Usuario SimBrief")
             if c2.button("Importar OFP"):
                 datos, err = obtener_datos_simbrief(sb_user)
                 if datos:
                     st.session_state.form_data.update(datos)
-                    st.session_state.form_data["tiempo"] = datos["tiempo_est"]
-                    st.success("¡Datos del plan de vuelo cargados!")
+                    st.success("¡Plan de vuelo importado!")
                 else:
                     st.error(err)
 
-        # --- SELECTOR DE AEROLÍNEA (FUERA del form para que funcione el checkbox) ---
-        st.markdown("#### Aerolínea")
-
-        # Inicializar estado si no existe
-        if "nueva_aerolinea_modo" not in st.session_state:
-            st.session_state["nueva_aerolinea_modo"] = False
-        if "aerolinea_seleccionada" not in st.session_state:
-            st.session_state["aerolinea_seleccionada"] = AEROLINEAS_BASE[0]
+        # --- SELECTOR DE AEROLÍNEA ---
+        st.markdown("#### 🏢 Operador / Aerolínea")
+        if "nueva_aerolinea_modo" not in st.session_state: st.session_state["nueva_aerolinea_modo"] = False
+        if "aerolinea_seleccionada" not in st.session_state: st.session_state["aerolinea_seleccionada"] = AEROLINEAS_BASE[0] # Usa lista base si no cambiaste a AVIONES_DINAMICOS
 
         col_aero1, col_aero2 = st.columns([3, 1])
         with col_aero2:
-            nueva_modo = st.toggle("➕ Nueva aerolínea", value=st.session_state["nueva_aerolinea_modo"])
-            st.session_state["nueva_aerolinea_modo"] = nueva_modo
-
+            st.session_state["nueva_aerolinea_modo"] = st.toggle("➕ Aerolínea manual", value=st.session_state["nueva_aerolinea_modo"])
         with col_aero1:
             if st.session_state["nueva_aerolinea_modo"]:
-                nueva_aero_input = st.text_input(
-                    "Nombre de la nueva aerolínea",
-                    placeholder="Ej: Air Patagonia",
-                    key="nueva_aero_input"
-                )
-                if nueva_aero_input.strip():
-                    st.session_state["aerolinea_seleccionada"] = nueva_aero_input.strip()
-                    st.caption(f"✅ Se guardará como: **{nueva_aero_input.strip()}**")
-                else:
-                    st.caption("⚠️ Escribí el nombre para continuar")
+                nueva_aero_input = st.text_input("Ingresar aerolínea manualmente", placeholder="Ej: Vuelo Privado", key="nueva_aero_input")
+                if nueva_aero_input.strip(): st.session_state["aerolinea_seleccionada"] = nueva_aero_input.strip()
             else:
                 lista_aero = obtener_aerolineas_inteligente()
-                idx_default = 0
-                if st.session_state["aerolinea_seleccionada"] in lista_aero:
-                    idx_default = lista_aero.index(st.session_state["aerolinea_seleccionada"])
-                aero_sel = st.selectbox("Seleccionar aerolínea", lista_aero, index=idx_default)
-                st.session_state["aerolinea_seleccionada"] = aero_sel
+                idx_default = lista_aero.index(st.session_state["aerolinea_seleccionada"]) if st.session_state["aerolinea_seleccionada"] in lista_aero else 0
+                st.session_state["aerolinea_seleccionada"] = st.selectbox("Seleccionar aerolínea guardada", lista_aero, index=idx_default, label_visibility="collapsed")
 
-        st.markdown("---")
+        # --- FORMULARIO REDISEÑADO ---
+        with st.form("vuelo", clear_on_submit=False):
+            st.markdown("#### ✈️ Identificación del Vuelo")
+            c1, c2, c3, c4 = st.columns(4)
+            fecha = c1.date_input("📅 Fecha", value=datetime.now())
+            num = c2.text_input("🔢 N° Vuelo / Callsign", value=st.session_state.form_data["no_vuelo"])
+            modelo = c3.selectbox("🛩️ Equipo", MODELOS_AVION) # Si en el paso anterior usaste AVIONES_DINAMICOS, cambialo acá.
+            l_rate = c4.number_input("📉 Toque (fpm)", value=0, step=10, help="Ej: -150")
 
-        # --- FORMULARIO PRINCIPAL ---
-        with st.form("vuelo"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                fecha = st.date_input("Fecha", value=datetime.now())
-                origen = st.text_input("Origen (ICAO)", value=st.session_state.form_data["origen"]).upper()
-                destino = st.text_input("Destino (ICAO)", value=st.session_state.form_data["destino"]).upper()
-                modelo = st.selectbox("Avión", AVIONES_DINAMICOS)
-            with c2:
-                h_out = st.time_input("Hora OUT (UTC)", value=time(12, 0), step=60)
-                h_in = st.time_input("Hora IN (UTC)", value=time(14, 0), step=60)
-                tiempo = st.number_input("Horas de vuelo", step=0.1, min_value=0.0, value=st.session_state.form_data["tiempo"])
-            with c3:
-                num = st.text_input("N° Vuelo", value=st.session_state.form_data["no_vuelo"])
-                g1, g2 = st.columns(2)
-                p_out = g1.text_input("Gate Salida", value=st.session_state.form_data["puerta_salida"])
-                p_in = g2.text_input("Gate Llegada", value=st.session_state.form_data["puerta_llegada"])
-                l_rate = st.number_input("Landing Rate (fpm)", value=0, step=10)
+            st.markdown("#### 🗺️ Ruta y Puertas")
+            r1, r2, r3, r4 = st.columns(4)
+            origen = r1.text_input("🛫 Origen (ICAO)", value=st.session_state.form_data["origen"]).upper()
+            p_out = r2.text_input("🚪 Gate Salida", value=st.session_state.form_data["puerta_salida"])
+            destino = r3.text_input("🛬 Destino (ICAO)", value=st.session_state.form_data["destino"]).upper()
+            p_in = r4.text_input("🚪 Gate Llegada", value=st.session_state.form_data["puerta_llegada"])
+
+            st.markdown("#### ⏱️ Tiempos de Calzos (ZULU)")
+            t1, t2, t3 = st.columns([1, 1, 2])
+            # Intentamos parsear la hora de SimBrief si existe, si no 12:00
+            def_out = time(12, 0)
+            if st.session_state.form_data.get("hora_salida") and ":" in st.session_state.form_data["hora_salida"]:
+                try:
+                    ho, mi = st.session_state.form_data["hora_salida"].split(":")
+                    def_out = time(int(ho), int(mi))
+                except: pass
+
+            h_out = t1.time_input("Hora OUT (Salida)", value=def_out, step=60)
+            h_in = t2.time_input("Hora IN (Llegada)", value=time(14, 0), step=60)
+            t3.info("💡 El Tiempo de Vuelo (`HH:MM`) se calculará y guardará automáticamente al confirmar.")
+
+            st.markdown("#### 📝 Detalles Adicionales")
+            ruta = st.text_area("Ruta de Vuelo", value=st.session_state.form_data["ruta"], height=68, placeholder="Ej: SUMU3 SUMU SID KUKEN UM534... ")
+            notas = st.text_area("Notas / Observaciones", height=68, placeholder="Combustible restante, METAR en ruta, incidencias...")
 
             st.markdown("---")
-            ruta = st.text_area("Ruta", value=st.session_state.form_data["ruta"], height=80)
-            notas = st.text_area("Notas", height=80)
+            submitted = st.form_submit_button("💾 Guardar en Bitácora")
 
-            submitted = st.form_submit_button("💾 Guardar Vuelo")
-
-        # Procesar fuera del form para evitar reruns problemáticos
         if submitted:
             aero_final = st.session_state["aerolinea_seleccionada"]
 
-            if tiempo <= 0:
-                st.error("❌ Las horas de vuelo deben ser mayores a 0.")
-            elif not origen or len(origen) < 3:
+            if not origen or len(origen) < 3:
                 st.error("❌ Ingresá un código ICAO de origen válido.")
             elif not destino or len(destino) < 3:
                 st.error("❌ Ingresá un código ICAO de destino válido.")
             elif st.session_state["nueva_aerolinea_modo"] and not aero_final:
                 st.error("❌ Escribí el nombre de la nueva aerolínea.")
             else:
-                # Calcular distancia real
+                # 1. Calculamos el tiempo en formato HH:MM
+                tiempo_hhmm = calcular_diferencia_hhmm(h_out, h_in)
+                
+                # 2. Calculamos la distancia
                 c_orig = obtener_coords(origen)
                 c_dest = obtener_coords(destino)
-                distancia = 0
-                if c_orig and c_dest:
-                    distancia = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1]))
+                distancia = round(haversine_nm(c_orig[0], c_orig[1], c_dest[0], c_dest[1])) if c_orig and c_dest else 0
 
                 row = [
                     str(fecha), origen, destino, ruta, aero_final, num, modelo,
                     h_out.strftime("%H:%M"), h_in.strftime("%H:%M"),
-                    f"{tiempo:.2f}", distancia, p_out, p_in, l_rate, notas
+                    tiempo_hhmm, distancia, p_out, p_in, l_rate, notas
                 ]
-                with st.spinner("Guardando en la nube..."):
-                    exito = guardar_vuelo_gs(row)
-                if exito:
-                    dist_txt = f" ({distancia} NM)" if distancia > 0 else ""
-                    st.success(f"✅ Vuelo {origen}→{destino}{dist_txt} registrado correctamente.")
-                    # Resetear modo nueva aerolínea
-                    st.session_state["nueva_aerolinea_modo"] = False
-                else:
-                    st.error("Error al guardar en la nube.")
-
+                with st.spinner("Registrando vuelo..."):
+                    if guardar_vuelo_gs(row):
+                        dist_txt = f" ({distancia} NM)" if distancia > 0 else ""
+                        st.success(f"✅ Vuelo {origen}→{destino}{dist_txt} guardado. Tiempo registrado: **{tiempo_hhmm}**.")
+                        st.session_state["nueva_aerolinea_modo"] = False
+                    else:
+                        st.error("Error al guardar en la nube.")
     # =========================================================
     # 2. CHECKLISTS
     # =========================================================
@@ -1196,7 +1205,7 @@ def main_app():
             # KPIs
             kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
             total_vuelos = len(df)
-            total_horas = df['Tiempo_Vuelo_Horas'].sum()
+            total_horas = df['Tiempo_Vuelo_Horas'].apply(parse_tiempo_horas).sum()
             promedio_landing = df['Landing_Rate_FPM'].mean()
             total_nm = df['Distancia_NM'].sum()
             avion_fav = df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns and not df['Modelo_Avion'].mode().empty else "N/A"
