@@ -983,11 +983,18 @@ def main_app():
                     c1, c2 = st.columns([3, 2])
                     with c1:
                         st.markdown(f"## 🛫 {v['Origen']}  →  🛬 {v['Destino']}")
-                        st.markdown(f"**{v['Aerolinea']}** — Vuelo `{v['Callsign']}`")
-                        st.caption(f"Categoría: {v['Categoria']}")
+                        
+                        # Usamos st.metric para poner la Aerolínea como "etiqueta" y el Callsign gigante como "valor"
+                        st.metric(v['Aerolinea'], f"✈️ {v['Callsign']}") 
+                        
+                        # (Eliminamos la línea de st.caption de la categoría)
+                        
                     with c2:
                         st.metric("✈️ Avión", v['Avion'])
                         st.metric("📏 Distancia / Tiempo", f"{v['Distancia_NM']} NM | {v['Duracion_Est']}")
+
+                    # Cargar al registro
+                    st.divider()
 
                     # Cargar al registro
                     st.divider()
