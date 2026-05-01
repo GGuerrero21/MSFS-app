@@ -979,24 +979,24 @@ def main_app():
                 es_esp = ca6.toggle("🌟 Ruta Especial (Ignorar auto-categoría)")
 
             if st.button("💾 Guardar en Base"):
-            origen_limpio = origen_input.strip().upper()
-            destino_limpio = destino_input.strip().upper()
+                origen_limpio = origen_input.strip().upper()
+                destino_limpio = destino_input.strip().upper()
 
                 if not origen_limpio or not destino_limpio:
-                st.warning("Por favor, completá Origen y Destino.")
+                    st.warning("Por favor, completá Origen y Destino.")
                 else:
                 # Buscamos las coordenadas de forma "segura" sin que dé error
-                data_orig = aeropuertos_db.get(origen_limpio, {})
-                data_dest = aeropuertos_db.get(destino_limpio, {})
+                    data_orig = aeropuertos_db.get(origen_limpio, {})
+                    data_dest = aeropuertos_db.get(destino_limpio, {})
 
-                # Si no existe, le asignamos 0.0 temporalmente para que no rompa la base
-                lat_origen = data_orig.get('lat', 0.0)
-                lon_origen = data_orig.get('lon', 0.0)
-                lat_destino = data_dest.get('lat', 0.0)
-                lon_destino = data_dest.get('lon', 0.0)
+                    # Si no existe, le asignamos 0.0 temporalmente para que no rompa la base
+                    lat_origen = data_orig.get('lat', 0.0)
+                    lon_origen = data_orig.get('lon', 0.0)
+                    lat_destino = data_dest.get('lat', 0.0)
+                    lon_destino = data_dest.get('lon', 0.0)
                 
-                if not data_orig or not data_dest:
-                    st.info(f"⚠️ Nota: Se guardó la ruta {origen_limpio}-{destino_limpio} para el generador, aunque sus coordenadas no estén en el mapa offline.")
+                    if not data_orig or not data_dest:
+                        st.info(f"⚠️ Nota: Se guardó la ruta {origen_limpio}-{destino_limpio} para el generador, aunque sus coordenadas no estén en el mapa offline.")
                 
                 # ---------------------------------------------------------
                 # (Acá abajo dejás tu código intacto que guarda la fila en tu Excel/Google Sheets)
