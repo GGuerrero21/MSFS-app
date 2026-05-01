@@ -982,9 +982,9 @@ def main_app():
             origen_limpio = origen_input.strip().upper()
             destino_limpio = destino_input.strip().upper()
 
-            if not origen_limpio or not destino_limpio:
+                if not origen_limpio or not destino_limpio:
                 st.warning("Por favor, completá Origen y Destino.")
-            else:
+                else:
                 # Buscamos las coordenadas de forma "segura" sin que dé error
                 data_orig = aeropuertos_db.get(origen_limpio, {})
                 data_dest = aeropuertos_db.get(destino_limpio, {})
