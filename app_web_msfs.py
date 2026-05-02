@@ -894,7 +894,6 @@ def main_app():
                     """)
 
 # ---- TAB 4: NOTAMS REALES ----
-# ---- TAB 4: NOTAMS REALES ----
         with tab4:
             st.subheader("⚠️ Avisos a los Aviadores (NOTAMs)")
             st.caption("Los NOTAMs contienen información crítica temporal sobre aeropuertos (pistas cerradas, radioayudas inoperativas, grúas, etc).")
@@ -971,41 +970,39 @@ def main_app():
         with tab_add:
             with st.form("add_ruta"):
                 ca1, ca2 = st.columns(2)
-                orig, dest = ca1.text_input("Origen (ICAO)").upper().strip(), ca2.text_input("Destino (ICAO)").upper().strip()
+                orig = ca1.text_input("Origen (ICAO)").upper().strip()
+                dest = ca2.text_input("Destino (ICAO)").upper().strip()
                 ca3, ca4 = st.columns(2)
-                aero, callsign = ca3.text_input("Aerolínea"), ca4.text_input("Callsign")
+                aero = ca3.text_input("Aerolínea")
+                callsign = ca4.text_input("Callsign")
                 ca5, ca6 = st.columns(2)
                 avion = ca5.selectbox("Avión", AVIONES_DINAMICOS)
                 es_esp = ca6.toggle("🌟 Ruta Especial (Ignorar auto-categoría)")
 
-# Usamos form_submit_button en lugar de button normal
-        guardar = st.form_submit_button("💾 Guardar en Base")
+                guardar = st.form_submit_button("💾 Guardar en Base")
 
-        if guardar:
-            origen_limpio = origen_input.strip().upper()
-            destino_limpio = destino_input.strip().upper()
-
-            if not origen_limpio or not destino_limpio:
-                st.warning("Por favor, completá Origen y Destino.")
-            else:
-                # Buscamos las coordenadas de forma "segura" sin que dé error
-                data_orig = aeropuertos_db.get(origen_limpio, {})
-                data_dest = aeropuertos_db.get(destino_limpio, {})
-
-                # Si no existe, le asignamos 0.0 temporalmente para que no rompa la base
-                lat_origen = data_orig.get('lat', 0.0)
-                lon_origen = data_orig.get('lon', 0.0)
-                lat_destino = data_dest.get('lat', 0.0)
-                lon_destino = data_dest.get('lon', 0.0)
-                
-                if not data_orig or not data_dest:
-                    st.info(f"⚠️ Nota: Se guardó la ruta {origen_limpio}-{destino_limpio} para el generador, aunque sus coordenadas no estén en el mapa offline.")
-                
-                # ---------------------------------------------------------
-                # (Acá abajo dejás tu código intacto que guarda la fila en tu Excel/Google Sheets)
-                # ...
-                
-                st.success("✅ Ruta añadida con éxito a tu base de vuelos.")
+                if guardar:
+                    if len(orig) != 4 or len(dest) != 4 or not callsign: 
+                        st.warning("Por favor, completá Origen, Destino y Callsign con datos válidos.")
+                    else:
+                        co = obtener_coords(orig)
+                        cd = obtener_coords(dest)
+                        
+                        if not co or not cd:
+                            st.info(f"⚠️ Nota: Se guardó la ruta {orig}-{dest} para el generador, aunque sus coordenadas no estén en el mapa offline.")
+                        
+                        d_nm = 0
+                        if co and cd:
+                            d_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1]))
+                            
+                        h_e = (d_nm / 430) + 0.6 if d_nm > 0 else 0
+                        d_str = f"~{int(h_e)}h {int((h_e - int(h_e)) * 60):02d}m" if h_e > 0 else "0h 00m"
+                        cat = "Desafiante / Especial" if es_esp else ("Corto radio (< 2h)" if h_e > 0 and h_e < 2 else ("Medio radio (2-6h)" if h_e > 0 and h_e <= 6 else "Largo radio (> 6h)" if h_e > 0 else "Sin Distancia"))
+                        
+                        if guardar_ruta_gs([orig, dest, aero, callsign, avion, cat, d_nm, d_str]): 
+                            st.success("✅ Ruta añadida con éxito a tu base de vuelos.")
+                        else:
+                            st.error("Error al guardar en la base de datos.")
 
         with tab_admin:
             if df_rutas.empty: st.write("Base vacía.")
