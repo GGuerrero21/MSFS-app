@@ -64,6 +64,46 @@ SHEET_HEADERS = [
 
 HEADERS_RUTAS = ["Origen", "Destino", "Aerolinea", "Callsign", "Avion", "Categoria", "Distancia_NM", "Duracion_Est"]
 
+HEADERS_ECONOMIA = [
+    "Fecha", "Vuelo", "Origen", "Destino", "Aerolinea", "Avion",
+    "Pax", "Pax_Business", "Pax_Economy", "Cargo_kg",
+    "Precio_Economy_USD", "Precio_Business_USD",
+    "Ingreso_Pax_USD", "Ingreso_Cargo_USD", "Ingreso_Total_USD",
+    "Costo_Combustible_USD", "Costo_GSX_USD", "Costo_Handling_USD", "Costo_Otros_USD", "Costo_Total_USD",
+    "Resultado_USD", "Notas"
+]
+
+# Capacidades y multiplicadores de precio por tipo de avión
+AVION_CONFIG = {
+    "Airbus A319":      {"pax": 124, "business_pct": 0.10},
+    "Airbus A320":      {"pax": 150, "business_pct": 0.10},
+    "Airbus A320 Neo":  {"pax": 150, "business_pct": 0.10},
+    "Airbus A321":      {"pax": 180, "business_pct": 0.10},
+    "Airbus A321 Neo":  {"pax": 180, "business_pct": 0.10},
+    "Airbus A330-900":  {"pax": 287, "business_pct": 0.20},
+    "Airbus A340-600":  {"pax": 280, "business_pct": 0.20},
+    "Airbus A350-900":  {"pax": 314, "business_pct": 0.22},
+    "Airbus A350-1000": {"pax": 350, "business_pct": 0.22},
+    "Airbus A380-800":  {"pax": 555, "business_pct": 0.25},
+    "Boeing 737-700":   {"pax": 128, "business_pct": 0.08},
+    "Boeing 737-800":   {"pax": 162, "business_pct": 0.08},
+    "Boeing 737 MAX 8": {"pax": 162, "business_pct": 0.08},
+    "Boeing 737-900":   {"pax": 178, "business_pct": 0.08},
+    "Boeing 747-8":     {"pax": 467, "business_pct": 0.25},
+    "Boeing 777-200":   {"pax": 305, "business_pct": 0.20},
+    "Boeing 777-200LR": {"pax": 305, "business_pct": 0.22},
+    "Boeing 777-300ER": {"pax": 396, "business_pct": 0.20},
+    "Boeing 787-8":     {"pax": 248, "business_pct": 0.18},
+    "Boeing 787-9":     {"pax": 296, "business_pct": 0.18},
+    "Boeing 787-10":    {"pax": 330, "business_pct": 0.18},
+    "Embraer E170":     {"pax": 70,  "business_pct": 0.12},
+    "Embraer E175":     {"pax": 76,  "business_pct": 0.12},
+    "Embraer E190":     {"pax": 100, "business_pct": 0.12},
+    "Embraer E195":     {"pax": 118, "business_pct": 0.12},
+    "ATR 72-600":       {"pax": 70,  "business_pct": 0.00},
+    "ATR 42-600":       {"pax": 50,  "business_pct": 0.00},
+}
+
 # =========================================================
 # FUNCIONES DE GOOGLE SHEETS Y CONEXIÓN
 # =========================================================
@@ -196,7 +236,7 @@ def conectar_gs_config():
         return sheet
     except Exception: return None
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=300)
 def leer_configuracion():
     sheet = conectar_gs_config()
     aero_list, avion_list = [], []
@@ -205,12 +245,11 @@ def leer_configuracion():
             data = sheet.get_all_records()
             for row in data:
                 if row.get("Aerolineas"): aero_list.append(str(row["Aerolineas"]).strip())
-                if row.get("Aviones"): avion_list.append(str(row["Aviones"]).strip())
+                if row.get("Aviones"):   avion_list.append(str(row["Aviones"]).strip())
         except Exception: pass
-    
-    if not aero_list: aero_list = AEROLINEAS_BASE
+    if not aero_list:  aero_list  = AEROLINEAS_BASE
     if not avion_list: avion_list = AVIONES_BASE
-    return sorted([x for x in set(aero_list) if x]), sorted([x for x in set(avion_list) if x])
+    return sorted(set(filter(None, aero_list))), sorted(set(filter(None, avion_list)))
 
 def agregar_item_config(columna, valor):
     sheet = conectar_gs_config()
@@ -221,7 +260,7 @@ def agregar_item_config(columna, valor):
             sheet.update_cell(len(valores) + 1, col_idx, valor)
             leer_configuracion.clear()
             return True
-        except Exception: return False
+        except Exception: pass
     return False
 
 def eliminar_item_config(columna, valor):
@@ -234,9 +273,61 @@ def eliminar_item_config(columna, valor):
                 sheet.update_cell(valores.index(valor) + 1, col_idx, "")
                 leer_configuracion.clear()
                 return True
-        except Exception: return False
+        except Exception: pass
     return False
 
+@st.cache_resource
+def conectar_gs_economia():
+    try:
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
+        client = gspread.authorize(creds)
+        doc = client.open("FlightLogbook")
+        try:
+            sheet = doc.worksheet("Economia")
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = doc.add_worksheet(title="Economia", rows="2000", cols="25")
+            sheet.append_row(HEADERS_ECONOMIA)
+        return sheet
+    except Exception: return None
+
+@st.cache_data(ttl=30)
+def leer_economia():
+    sheet = conectar_gs_economia()
+    if not sheet: return pd.DataFrame()
+    try:
+        data = sheet.get_all_records()
+        if not data: return pd.DataFrame()
+        df = pd.DataFrame(data)
+        num_cols = ["Pax", "Pax_Business", "Pax_Economy", "Cargo_kg",
+                    "Precio_Economy_USD", "Precio_Business_USD",
+                    "Ingreso_Pax_USD", "Ingreso_Cargo_USD", "Ingreso_Total_USD",
+                    "Costo_Combustible_USD", "Costo_GSX_USD", "Costo_Handling_USD",
+                    "Costo_Otros_USD", "Costo_Total_USD", "Resultado_USD"]
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+        return df
+    except Exception: return pd.DataFrame()
+
+def guardar_economia_gs(row_data):
+    sheet = conectar_gs_economia()
+    if sheet:
+        try:
+            sheet.append_row([str(x) for x in row_data])
+            leer_economia.clear()
+            return True
+        except Exception: pass
+    return False
+
+def eliminar_economia_gs(row_index):
+    sheet = conectar_gs_economia()
+    if sheet:
+        try:
+            sheet.delete_rows(row_index + 2)
+            leer_economia.clear()
+            return True
+        except Exception: pass
+    return False
 
 # =========================================================
 # FUNCIONES DE LÓGICA Y CÁLCULO
@@ -296,14 +387,37 @@ def obtener_datos_simbrief(username):
         r = requests.get(url, timeout=5)
         if r.status_code == 200:
             data = r.json()
-            gen, orig, dest, times = data.get('general',{}), data.get('origin',{}), data.get('destination',{}), data.get('times',{})
-            dep_time = datetime.utcfromtimestamp(int(times.get('sched_out', 0))).strftime('%H:%M') if times.get('sched_out') else "12:00"
+            gen   = data.get('general', {})
+            orig  = data.get('origin', {})
+            dest  = data.get('destination', {})
+            times = data.get('times', {})
+            wts   = data.get('weights', {})
+            fuel  = data.get('fuel', {})
+
+            dep_time = datetime.utcfromtimestamp(int(times.get('sched_out', 0))).strftime('%H:%M') \
+                if times.get('sched_out') else "12:00"
+
+            # Pasajeros — SimBrief los devuelve en weights.pax_count
+            pax_count = int(wts.get('pax_count', 0) or 0)
+            cargo_kg  = round(int(wts.get('payload', 0) or 0) * 0.453592 -
+                              pax_count * 104)  # payload total menos peso pax estimado (~104kg c/u con equipaje)
+            cargo_kg  = max(0, cargo_kg)
+
+            # Combustible en kg
+            fuel_kg = round(int(fuel.get('plan_ramp', 0) or 0) * 0.453592)
+
             return {
                 "origen": orig.get('icao_code', ''), "destino": dest.get('icao_code', ''),
                 "no_vuelo": f"{gen.get('icao_airline', '')}{gen.get('flight_number', '')}",
                 "ruta": gen.get('route', ''), "tiempo_est": int(times.get('est_block', 0)) / 3600,
                 "puerta_salida": orig.get('gate', 'TBD'), "puerta_llegada": dest.get('gate', 'TBD'),
-                "hora_salida": dep_time, "fecha": datetime.now().strftime("%d %b %Y").upper()
+                "hora_salida": dep_time, "fecha": datetime.now().strftime("%d %b %Y").upper(),
+                # Datos económicos
+                "pax_count": pax_count,
+                "cargo_kg": cargo_kg,
+                "fuel_kg": fuel_kg,
+                "avion_icao": gen.get('aircraft_icao', ''),
+                "distancia_nm": int(gen.get('distance_fly', 0) or 0),
             }, None
         return None, "Error al conectar con SimBrief."
     except Exception as e: return None, f"Excepción: {e}"
@@ -490,7 +604,8 @@ def main_app():
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
         "📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa",
-        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas", "📊 Estadísticas", "⚙️ Configuración"
+        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas",
+        "💰 Economía", "📊 Estadísticas", "⚙️ Configuración"
     ])
 
     _, AVIONES_DINAMICOS = leer_configuracion()
@@ -1062,6 +1177,399 @@ def main_app():
             af = f3.number_input("Alternado (kg)", value=1500)
             block = tf + (tf*cp/100) + af + 1500 + 200
             st.metric("Block Fuel Sugerido", f"{block:.0f} kg")
+
+    # =========================================================
+    # ECONOMIA
+    # =========================================================
+    elif menu == "💰 Economía":
+        import random as _rnd
+
+        st.header("💰 Economía de Vuelo")
+        st.caption("Calculá cuánto ganaste (o perdiste) en cada vuelo, basándote en pasajeros reales de SimBrief y costos GSX.")
+
+        # Precios de referencia por NM (basados en tarifas reales promedio)
+        def precio_referencia_por_nm(dist_nm):
+            """Precio economy estimado según distancia (USD). Basado en yield medio real ~0.12 USD/RPK."""
+            if dist_nm <= 0: return 80
+            dist_km = dist_nm * 1.852
+            # Yield aerolineas: ~$0.10-0.15/km economy, Business ~3.5x
+            precio = max(60, dist_km * 0.11)
+            return round(precio / 5) * 5  # Redondear a multiplos de 5
+
+        tab_nuevo, tab_historial, tab_dashboard = st.tabs(["✈️ Nuevo vuelo", "📋 Historial", "📊 Dashboard"])
+
+        # ── TAB 1: NUEVO VUELO ────────────────────────────────────────────
+        with tab_nuevo:
+            st.subheader("Calcular resultado del vuelo")
+
+            # Importar desde SimBrief
+            with st.expander("📥 Importar datos de SimBrief", expanded=True):
+                sb_col1, sb_col2 = st.columns([3, 1])
+                sb_user_eco = sb_col1.text_input("Usuario SimBrief", key="sb_eco")
+                if sb_col2.button("Importar", key="import_eco"):
+                    datos_sb, err_sb = obtener_datos_simbrief(sb_user_eco)
+                    if datos_sb:
+                        st.session_state["eco_sb"] = datos_sb
+                        st.success(f"Datos cargados: {datos_sb['origen']} > {datos_sb['destino']} | {datos_sb.get('pax_count', 0)} pax")
+                    else:
+                        st.error(err_sb)
+
+            sb = st.session_state.get("eco_sb", {})
+
+            # ── SECCIÓN 1: Datos del vuelo ────────────────────────────────
+            st.markdown("#### Datos del vuelo")
+            e1, e2, e3, e4 = st.columns(4)
+            eco_fecha   = e1.date_input("Fecha", value=datetime.now(), key="eco_fecha")
+            eco_vuelo   = e2.text_input("N° Vuelo", value=sb.get("no_vuelo", ""), key="eco_num")
+            eco_origen  = e3.text_input("Origen ICAO", value=sb.get("origen", "").upper(), key="eco_orig").upper()
+            eco_destino = e4.text_input("Destino ICAO", value=sb.get("destino", "").upper(), key="eco_dest").upper()
+
+            e5, e6 = st.columns(2)
+            eco_aero  = e5.text_input("Aerolínea", key="eco_aero")
+            _, aviones_eco = leer_configuracion()
+            eco_avion = e6.selectbox("Avión", aviones_eco, key="eco_avion")
+
+            # Calcular distancia automáticamente si hay ICAOs
+            dist_eco = 0
+            c_o = obtener_coords(eco_origen)
+            c_d = obtener_coords(eco_destino)
+            if c_o and c_d:
+                dist_eco = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
+
+            st.markdown("---")
+
+            # ── SECCIÓN 2: PASAJEROS ─────────────────────────────────────
+            st.markdown("#### Pasajeros y carga")
+
+            cfg_avion = AVION_CONFIG.get(eco_avion, {"pax": 150, "business_pct": 0.10})
+            cap_total = cfg_avion["pax"]
+            bus_pct   = cfg_avion["business_pct"]
+
+            p1, p2, p3 = st.columns(3)
+
+            # Pasajeros desde SimBrief si están disponibles
+            pax_sb = sb.get("pax_count", 0)
+            pax_default = pax_sb if pax_sb > 0 else round(cap_total * 0.82)  # 82% load factor típico
+
+            eco_pax_total = p1.number_input(
+                f"Pasajeros totales (cap. {cap_total})",
+                value=pax_default, min_value=0, max_value=cap_total + 50, step=1,
+                key="eco_pax",
+                help="SimBrief importa este valor automáticamente si generaste el plan con pasajeros"
+            )
+            if pax_sb > 0:
+                p1.caption(f"SimBrief: {pax_sb} pax")
+
+            bus_default = max(0, round(eco_pax_total * bus_pct))
+            eco_pax_bus = p2.number_input(
+                "de los cuales en Business",
+                value=bus_default, min_value=0, max_value=eco_pax_total, step=1,
+                key="eco_bus"
+            )
+            eco_pax_eco = eco_pax_total - eco_pax_bus
+
+            cargo_sb = sb.get("cargo_kg", 0)
+            eco_cargo = p3.number_input(
+                "Carga (kg)",
+                value=cargo_sb if cargo_sb > 0 else 2000,
+                min_value=0, step=100, key="eco_cargo",
+                help="Extraido de SimBrief o ingresado manualmente"
+            )
+            if cargo_sb > 0:
+                p3.caption(f"SimBrief: {cargo_sb} kg")
+
+            # Load factor visual
+            lf = (eco_pax_total / cap_total * 100) if cap_total > 0 else 0
+            lf_color = "green" if lf >= 80 else ("orange" if lf >= 60 else "red")
+            st.markdown(
+                f"**Load Factor:** "
+                f"<span style='color:{lf_color};font-weight:700;'>{lf:.1f}%</span> "
+                f"({eco_pax_eco} economy + {eco_pax_bus} business)",
+                unsafe_allow_html=True
+            )
+
+            st.markdown("---")
+
+            # ── SECCIÓN 3: PRECIOS E INGRESOS ────────────────────────────
+            st.markdown("#### Precios e ingresos")
+
+            precio_ref = precio_referencia_por_nm(dist_eco)
+
+            pr1, pr2, pr3 = st.columns(3)
+            precio_eco = pr1.number_input(
+                "Precio Economy (USD/pax)",
+                value=precio_ref, min_value=0, step=5, key="eco_precio_eco",
+                help=f"Precio de referencia para {dist_eco} NM basado en yield real"
+            )
+            precio_bus = pr2.number_input(
+                "Precio Business (USD/pax)",
+                value=round(precio_ref * 3.5 / 5) * 5, min_value=0, step=10, key="eco_precio_bus",
+                help="Business suele ser 3x-4x el precio economy"
+            )
+            precio_cargo = pr3.number_input(
+                "Precio carga (USD/kg)",
+                value=2, min_value=0, step=1, key="eco_precio_cargo",
+                help="Tarifa media de carga aérea: ~$1.5-3/kg"
+            )
+            if dist_eco > 0:
+                pr1.caption(f"Ref. distancia {dist_eco} NM")
+
+            ingreso_eco   = eco_pax_eco * precio_eco
+            ingreso_bus   = eco_pax_bus * precio_bus
+            ingreso_cargo = eco_cargo   * precio_cargo
+            ingreso_total = ingreso_eco + ingreso_bus + ingreso_cargo
+
+            st.markdown("---")
+
+            # ── SECCIÓN 4: COSTOS (manual — lo que te cobró GSX/fuel) ────
+            st.markdown("#### Costos operacionales (GSX Pro 4.0)")
+            st.caption("Ingresá los valores que GSX te cobró en el invoice + combustible real.")
+
+            fuel_sb = sb.get("fuel_kg", 0)
+            cs1, cs2, cs3, cs4 = st.columns(4)
+
+            # Precio Jet-A estimado (referencia real ~0.70-0.90 USD/kg)
+            fuel_price_per_kg = 0.80
+            costo_fuel_default = round(fuel_sb * fuel_price_per_kg) if fuel_sb > 0 else 0
+
+            costo_fuel   = cs1.number_input(
+                "Combustible (USD)",
+                value=costo_fuel_default, min_value=0, step=100, key="eco_fuel",
+                help=f"~$0.80/kg x {fuel_sb} kg estimado de SimBrief" if fuel_sb > 0 else "Ingresalo del invoice de GSX"
+            )
+            costo_gsx    = cs2.number_input(
+                "GSX ground ops (USD)",
+                value=0, min_value=0, step=50, key="eco_gsx",
+                help="Catering + handling + GPU + agua + servicios de GSX Pro 4.0"
+            )
+            costo_hand   = cs3.number_input(
+                "Handling aeroportuario (USD)",
+                value=0, min_value=0, step=50, key="eco_hand",
+                help="Tasas aeroportuarias, rampa, navegación"
+            )
+            costo_otros  = cs4.number_input(
+                "Otros costos (USD)",
+                value=0, min_value=0, step=50, key="eco_otros",
+                help="Catering, tasas, derechos de ruta, etc."
+            )
+
+            if fuel_sb > 0:
+                cs1.caption(f"SimBrief: {fuel_sb:,} kg combustible")
+
+            costo_total  = costo_fuel + costo_gsx + costo_hand + costo_otros
+            resultado    = ingreso_total - costo_total
+
+            st.markdown("---")
+
+            # ── RESUMEN ───────────────────────────────────────────────────
+            st.markdown("#### Resumen del vuelo")
+
+            res_cols = st.columns(4)
+            res_cols[0].metric("Ingresos PAX",   f"${ingreso_eco + ingreso_bus:,.0f}")
+            res_cols[1].metric("Ingresos Cargo",  f"${ingreso_cargo:,.0f}")
+            res_cols[2].metric("Costos Totales",  f"${costo_total:,.0f}")
+
+            delta_color = "normal" if resultado >= 0 else "inverse"
+            res_cols[3].metric(
+                "RESULTADO",
+                f"${resultado:,.0f}",
+                delta=f"{'Ganancia' if resultado >= 0 else 'Pérdida'}",
+                delta_color=delta_color
+            )
+
+            # Barra de margen
+            if ingreso_total > 0:
+                margen = resultado / ingreso_total * 100
+                st.progress(max(0.0, min(1.0, resultado / ingreso_total)),
+                            text=f"Margen: {margen:.1f}% | Ingresos: ${ingreso_total:,.0f} | Costos: ${costo_total:,.0f}")
+
+            # Breakdown detallado
+            with st.expander("Ver detalle completo"):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown("**Ingresos**")
+                    st.write(f"- Economy: {eco_pax_eco} pax × ${precio_eco} = **${ingreso_eco:,.0f}**")
+                    st.write(f"- Business: {eco_pax_bus} pax × ${precio_bus} = **${ingreso_bus:,.0f}**")
+                    st.write(f"- Carga: {eco_cargo} kg × ${precio_cargo}/kg = **${ingreso_cargo:,.0f}**")
+                    st.markdown(f"**Total ingresos: ${ingreso_total:,.0f}**")
+                with dc2:
+                    st.markdown("**Costos**")
+                    st.write(f"- Combustible: **${costo_fuel:,.0f}**")
+                    st.write(f"- GSX ground ops: **${costo_gsx:,.0f}**")
+                    st.write(f"- Handling aerop.: **${costo_hand:,.0f}**")
+                    st.write(f"- Otros: **${costo_otros:,.0f}**")
+                    st.markdown(f"**Total costos: ${costo_total:,.0f}**")
+
+            eco_notas = st.text_input("Notas (opcional)", placeholder="Ej: Vuelo con delay, clima adverso...", key="eco_notas")
+
+            st.markdown("---")
+            if st.button("💾 Guardar resultado del vuelo", use_container_width=True, key="eco_save"):
+                if not eco_origen or not eco_destino:
+                    st.error("Ingresá origen y destino.")
+                else:
+                    row = [
+                        str(eco_fecha), eco_vuelo, eco_origen, eco_destino, eco_aero, eco_avion,
+                        eco_pax_total, eco_pax_bus, eco_pax_eco, eco_cargo,
+                        precio_eco, precio_bus,
+                        round(ingreso_eco + ingreso_bus), round(ingreso_cargo), round(ingreso_total),
+                        round(costo_fuel), round(costo_gsx), round(costo_hand), round(costo_otros), round(costo_total),
+                        round(resultado), eco_notas
+                    ]
+                    with st.spinner("Guardando en la nube..."):
+                        ok = guardar_economia_gs(row)
+                    if ok:
+                        resultado_str = f"{'ganancia' if resultado >= 0 else 'pérdida'} de ${abs(resultado):,.0f}"
+                        st.success(f"Vuelo {eco_vuelo} ({eco_origen}>{eco_destino}) guardado con {resultado_str}.")
+                        # Limpiar datos de SimBrief
+                        st.session_state.pop("eco_sb", None)
+                    else:
+                        st.error("Error al guardar.")
+
+        # ── TAB 2: HISTORIAL ─────────────────────────────────────────────
+        with tab_historial:
+            df_eco = leer_economia()
+            if df_eco.empty:
+                st.info("No hay vuelos guardados aún. Calculá el resultado de tu primer vuelo.")
+            else:
+                # Resumen rápido al tope
+                total_ganado = df_eco["Resultado_USD"].sum()
+                mejor_vuelo  = df_eco.loc[df_eco["Resultado_USD"].idxmax()]
+                peor_vuelo   = df_eco.loc[df_eco["Resultado_USD"].idxmin()]
+
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Vuelos registrados", len(df_eco))
+                k2.metric("Resultado acumulado", f"${total_ganado:,.0f}",
+                           delta="Ganancia" if total_ganado >= 0 else "Pérdida",
+                           delta_color="normal" if total_ganado >= 0 else "inverse")
+                k3.metric("Mejor vuelo", f"${mejor_vuelo['Resultado_USD']:,.0f}",
+                           f"{mejor_vuelo.get('Origen','')}>{mejor_vuelo.get('Destino','')}")
+                k4.metric("Peor vuelo",  f"${peor_vuelo['Resultado_USD']:,.0f}",
+                           f"{peor_vuelo.get('Origen','')}>{peor_vuelo.get('Destino','')}")
+
+                st.divider()
+
+                # Buscador
+                busq_eco = st.text_input("Buscar...", placeholder="ICAO, vuelo, aerolínea", key="busq_eco")
+                df_eco_d = df_eco.copy()
+                if busq_eco:
+                    mask = df_eco_d.astype(str).apply(
+                        lambda x: x.str.lower().str.contains(busq_eco.lower())).any(axis=1)
+                    df_eco_d = df_eco_d[mask]
+
+                for i, row in df_eco_d.iterrows():
+                    res_vuelo = float(row.get("Resultado_USD", 0))
+                    color = "#1a3a1a" if res_vuelo >= 0 else "#3a1a1a"
+                    icono = "📈" if res_vuelo >= 0 else "📉"
+
+                    with st.container():
+                        h1, h2, h3, h4, h5, h6 = st.columns([1.5, 1.5, 2, 1.5, 1.5, 0.8])
+                        h1.markdown(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
+                        h2.caption(f"{row.get('Fecha','')} | {row.get('Vuelo','')}")
+                        h3.caption(f"{row.get('Aerolinea','')} | {row.get('Avion','')}")
+                        h4.caption(f"{int(row.get('Pax',0))} pax | {int(row.get('Cargo_kg',0))} kg")
+                        h5.markdown(f"{icono} **${res_vuelo:,.0f}**")
+                        if h6.button("🗑️", key=f"del_eco_{i}"):
+                            st.session_state[f"confirm_del_eco_{i}"] = True
+
+                        if st.session_state.get(f"confirm_del_eco_{i}"):
+                            st.warning(f"¿Eliminar vuelo {row.get('Vuelo','')} ({row.get('Origen','')}>{row.get('Destino','')})?")
+                            cy, cn = st.columns(2)
+                            if cy.button("Sí", key=f"yes_eco_{i}"):
+                                if eliminar_economia_gs(i):
+                                    st.session_state.pop(f"confirm_del_eco_{i}", None)
+                                    st.rerun()
+                            if cn.button("Cancelar", key=f"no_eco_{i}"):
+                                st.session_state.pop(f"confirm_del_eco_{i}", None)
+                                st.rerun()
+
+                        with st.expander("Ver detalle", expanded=False):
+                            d1, d2, d3 = st.columns(3)
+                            d1.metric("Ingresos PAX",  f"${float(row.get('Ingreso_Pax_USD',0)):,.0f}")
+                            d1.metric("Ingresos Cargo",f"${float(row.get('Ingreso_Cargo_USD',0)):,.0f}")
+                            d2.metric("Costo Fuel",    f"${float(row.get('Costo_Combustible_USD',0)):,.0f}")
+                            d2.metric("Costo GSX",     f"${float(row.get('Costo_GSX_USD',0)):,.0f}")
+                            d3.metric("Total Ingresos",f"${float(row.get('Ingreso_Total_USD',0)):,.0f}")
+                            d3.metric("Total Costos",  f"${float(row.get('Costo_Total_USD',0)):,.0f}")
+                            if row.get("Notas"):
+                                st.caption(f"Notas: {row['Notas']}")
+                    st.divider()
+
+                # Exportar
+                if st.button("📥 Exportar historial CSV"):
+                    st.download_button("Descargar", df_eco.to_csv(index=False).encode('utf-8'),
+                                       "economia_vuelos.csv", "text/csv")
+
+        # ── TAB 3: DASHBOARD ECONÓMICO ───────────────────────────────────
+        with tab_dashboard:
+            df_eco2 = leer_economia()
+            if df_eco2.empty:
+                st.info("Guardá al menos un vuelo para ver el dashboard.")
+            else:
+                st.subheader("Dashboard Económico")
+
+                # KPIs globales
+                k1, k2, k3, k4, k5 = st.columns(5)
+                k1.metric("Vuelos",          len(df_eco2))
+                k2.metric("Ingresos totales",f"${df_eco2['Ingreso_Total_USD'].sum():,.0f}")
+                k3.metric("Costos totales",  f"${df_eco2['Costo_Total_USD'].sum():,.0f}")
+                k4.metric("Resultado neto",  f"${df_eco2['Resultado_USD'].sum():,.0f}",
+                           delta_color="normal" if df_eco2['Resultado_USD'].sum() >= 0 else "inverse")
+                total_pax = df_eco2['Pax'].sum()
+                k5.metric("Total pasajeros", f"{int(total_pax):,}")
+
+                st.markdown("---")
+
+                col_g1, col_g2 = st.columns(2)
+
+                with col_g1:
+                    # Resultado por vuelo
+                    fig_res = px.bar(
+                        df_eco2,
+                        x=df_eco2.apply(lambda r: f"{r.get('Origen','?')}>{r.get('Destino','?')}", axis=1),
+                        y="Resultado_USD",
+                        color="Resultado_USD",
+                        color_continuous_scale=["red", "yellow", "green"],
+                        title="Resultado por vuelo (USD)",
+                        labels={"x": "Ruta", "Resultado_USD": "Resultado"}
+                    )
+                    fig_res.update_layout(showlegend=False, coloraxis_showscale=False)
+                    st.plotly_chart(fig_res, use_container_width=True)
+
+                with col_g2:
+                    # Desglose ingresos vs costos promedio
+                    avg_ing   = df_eco2[["Ingreso_Pax_USD", "Ingreso_Cargo_USD"]].mean()
+                    avg_costo = df_eco2[["Costo_Combustible_USD", "Costo_GSX_USD",
+                                         "Costo_Handling_USD", "Costo_Otros_USD"]].mean()
+
+                    labels = ["PAX", "Cargo", "Fuel", "GSX", "Handling", "Otros"]
+                    values = [avg_ing["Ingreso_Pax_USD"], avg_ing["Ingreso_Cargo_USD"],
+                              avg_costo["Costo_Combustible_USD"], avg_costo["Costo_GSX_USD"],
+                              avg_costo["Costo_Handling_USD"], avg_costo["Costo_Otros_USD"]]
+                    colors = ["#2ecc71", "#27ae60", "#e74c3c", "#c0392b", "#e67e22", "#d35400"]
+
+                    fig_pie = px.pie(
+                        values=values, names=labels,
+                        title="Desglose promedio por vuelo (USD)",
+                        color_discrete_sequence=colors
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
+
+                # Evolución acumulada
+                if 'Fecha' in df_eco2.columns:
+                    try:
+                        df_eco2['Fecha_dt'] = pd.to_datetime(df_eco2['Fecha'], errors='coerce')
+                        df_sorted = df_eco2.dropna(subset=['Fecha_dt']).sort_values('Fecha_dt')
+                        df_sorted['Resultado_Acum'] = df_sorted['Resultado_USD'].cumsum()
+                        fig_acum = px.area(
+                            df_sorted,
+                            x='Fecha_dt', y='Resultado_Acum',
+                            title="Resultado acumulado en el tiempo",
+                            labels={"Fecha_dt": "Fecha", "Resultado_Acum": "USD acumulados"},
+                            color_discrete_sequence=["#2ecc71"]
+                        )
+                        st.plotly_chart(fig_acum, use_container_width=True)
+                    except Exception:
+                        pass
 
     # =========================================================
     # ESTADÍSTICAS (RESTAURADAS CON GRÁFICO DE BARRAS)
