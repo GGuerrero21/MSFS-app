@@ -1249,21 +1249,23 @@ def main_app():
 
             # Pasajeros desde SimBrief si están disponibles
             pax_sb = sb.get("pax_count", 0)
-            pax_default = pax_sb if pax_sb > 0 else round(cap_total * 0.82)  # 82% load factor típico
+            pax_max = max(cap_total + 50, pax_sb + 10, 600)  # nunca menor que el valor de SimBrief
+            pax_default = min(pax_sb if pax_sb > 0 else round(cap_total * 0.82), pax_max)
 
             eco_pax_total = p1.number_input(
                 f"Pasajeros totales (cap. {cap_total})",
-                value=pax_default, min_value=0, max_value=cap_total + 50, step=1,
+                value=int(pax_default), min_value=0, max_value=int(pax_max), step=1,
                 key="eco_pax",
                 help="SimBrief importa este valor automáticamente si generaste el plan con pasajeros"
             )
             if pax_sb > 0:
                 p1.caption(f"SimBrief: {pax_sb} pax")
 
-            bus_default = max(0, round(eco_pax_total * bus_pct))
+            bus_max = max(int(eco_pax_total), 1)  # nunca 0 para evitar max_value=0
+            bus_default = min(max(0, round(eco_pax_total * bus_pct)), bus_max)
             eco_pax_bus = p2.number_input(
                 "de los cuales en Business",
-                value=bus_default, min_value=0, max_value=eco_pax_total, step=1,
+                value=int(bus_default), min_value=0, max_value=int(bus_max), step=1,
                 key="eco_bus"
             )
             eco_pax_eco = eco_pax_total - eco_pax_bus
@@ -1271,7 +1273,7 @@ def main_app():
             cargo_sb = sb.get("cargo_kg", 0)
             eco_cargo = p3.number_input(
                 "Carga (kg)",
-                value=cargo_sb if cargo_sb > 0 else 2000,
+                value=int(cargo_sb) if cargo_sb > 0 else 2000,
                 min_value=0, step=100, key="eco_cargo",
                 help="Extraido de SimBrief o ingresado manualmente"
             )
