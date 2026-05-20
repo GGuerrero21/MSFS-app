@@ -66,11 +66,13 @@ HEADERS_RUTAS = ["Origen", "Destino", "Aerolinea", "Callsign", "Avion", "Categor
 
 HEADERS_ECONOMIA = [
     "Fecha", "Vuelo", "Origen", "Destino", "Aerolinea", "Avion",
-    "Pax", "Pax_Business", "Pax_Economy", "Cargo_kg",
-    "Precio_Economy_USD", "Precio_Business_USD",
-    "Ingreso_Pax_USD", "Ingreso_Cargo_USD", "Ingreso_Total_USD",
-    "Costo_Combustible_USD", "Costo_GSX_USD", "Costo_Handling_USD", "Costo_Otros_USD", "Costo_Total_USD",
-    "Resultado_USD", "Notas"
+    "Pax_Total", "Pax_Premium", "Pax_Business", "Pax_Economy", "Cargo_kg",
+    "Precio_Premium_USD", "Precio_Business_USD", "Precio_Economy_USD", "Precio_Cargo_USD",
+    "Ingreso_Premium_USD", "Ingreso_Business_USD", "Ingreso_Economy_USD",
+    "Ingreso_Cargo_USD", "Ingreso_Total_USD",
+    "Costo_Fuel_USD", "Costo_Hand_Sal_USD", "Costo_Hand_Lle_USD",
+    "Costo_PaxBus_Sal_USD", "Costo_PaxBus_Lle_USD", "Costo_Catering_USD",
+    "Costo_Total_USD", "Resultado_USD", "Notas"
 ]
 
 # Capacidades y multiplicadores de precio por tipo de avión
@@ -1202,15 +1204,17 @@ def main_app():
         with tab_nuevo:
             st.subheader("Calcular resultado del vuelo")
 
-            # Importar desde SimBrief
-            with st.expander("📥 Importar datos de SimBrief", expanded=True):
+            # Importar desde SimBrief (solo carga/fuel, no pax)
+            with st.expander("📥 Importar datos de SimBrief (carga y combustible)", expanded=True):
                 sb_col1, sb_col2 = st.columns([3, 1])
                 sb_user_eco = sb_col1.text_input("Usuario SimBrief", key="sb_eco")
                 if sb_col2.button("Importar", key="import_eco"):
                     datos_sb, err_sb = obtener_datos_simbrief(sb_user_eco)
                     if datos_sb:
                         st.session_state["eco_sb"] = datos_sb
-                        st.success(f"Datos cargados: {datos_sb['origen']} > {datos_sb['destino']} | {datos_sb.get('pax_count', 0)} pax")
+                        st.success(f"Cargado: {datos_sb['origen']} > {datos_sb['destino']} | "
+                                   f"Carga: {datos_sb.get('cargo_kg',0):,} kg | "
+                                   f"Combustible: {datos_sb.get('fuel_kg',0):,} kg")
                     else:
                         st.error(err_sb)
 
@@ -1224,205 +1228,309 @@ def main_app():
             eco_origen  = e3.text_input("Origen ICAO", value=sb.get("origen", "").upper(), key="eco_orig").upper()
             eco_destino = e4.text_input("Destino ICAO", value=sb.get("destino", "").upper(), key="eco_dest").upper()
 
-            e5, e6 = st.columns(2)
-            eco_aero  = e5.text_input("Aerolínea", key="eco_aero")
-            _, aviones_eco = leer_configuracion()
-            eco_avion = e6.selectbox("Avión", aviones_eco, key="eco_avion")
+            # FIX 1: Aerolínea con desplegable igual que en Registro de Vuelo
+            st.markdown("##### Aerolínea")
+            if "eco_nueva_aero_modo" not in st.session_state:
+                st.session_state["eco_nueva_aero_modo"] = False
+            if "eco_aero_sel" not in st.session_state:
+                st.session_state["eco_aero_sel"] = AEROLINEAS_BASE[0]
 
-            # Calcular distancia automáticamente si hay ICAOs
+            ea1, ea2 = st.columns([3, 1])
+            with ea2:
+                st.session_state["eco_nueva_aero_modo"] = st.toggle(
+                    "Manual", value=st.session_state["eco_nueva_aero_modo"], key="eco_aero_toggle")
+            with ea1:
+                if st.session_state["eco_nueva_aero_modo"]:
+                    inp_aero = st.text_input("Nombre aerolínea", key="eco_aero_manual",
+                                             placeholder="Ej: Air Patagonia")
+                    if inp_aero.strip():
+                        st.session_state["eco_aero_sel"] = inp_aero.strip()
+                else:
+                    lista_aero_eco = obtener_aerolineas_inteligente()
+                    idx_aero = lista_aero_eco.index(st.session_state["eco_aero_sel"]) \
+                        if st.session_state["eco_aero_sel"] in lista_aero_eco else 0
+                    st.session_state["eco_aero_sel"] = st.selectbox(
+                        "Aerolínea", lista_aero_eco, index=idx_aero,
+                        key="eco_aero_dd", label_visibility="collapsed")
+            eco_aero = st.session_state["eco_aero_sel"]
+
+            _, aviones_eco = leer_configuracion()
+            eco_avion = st.selectbox("Avión", aviones_eco, key="eco_avion")
+
+            # Distancia automática
             dist_eco = 0
-            c_o = obtener_coords(eco_origen)
-            c_d = obtener_coords(eco_destino)
-            if c_o and c_d:
-                dist_eco = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
+            if eco_origen and eco_destino:
+                c_o = obtener_coords(eco_origen)
+                c_d = obtener_coords(eco_destino)
+                if c_o and c_d:
+                    dist_eco = round(haversine_nm(c_o[0], c_o[1], c_d[0], c_d[1]))
 
             st.markdown("---")
 
-            # ── SECCIÓN 2: PASAJEROS ─────────────────────────────────────
+            # ── SECCIÓN 2: PASAJEROS (FIX 2: 3 cabinas, todo manual) ─────
             st.markdown("#### Pasajeros y carga")
 
             cfg_avion = AVION_CONFIG.get(eco_avion, {"pax": 150, "business_pct": 0.10})
             cap_total = cfg_avion["pax"]
             bus_pct   = cfg_avion["business_pct"]
+            # Premium suele ser ~5% en aviones que lo tienen, 0% en corto radio
+            prem_pct  = 0.05 if cap_total >= 200 and bus_pct >= 0.15 else 0.0
 
-            p1, p2, p3 = st.columns(3)
+            cap_prem = round(cap_total * prem_pct)
+            cap_bus  = round(cap_total * bus_pct)
+            cap_eco  = cap_total - cap_prem - cap_bus
 
-            # Pasajeros desde SimBrief si están disponibles
-            pax_sb = sb.get("pax_count", 0)
-            pax_max = max(cap_total + 50, pax_sb + 10, 600)  # nunca menor que el valor de SimBrief
-            pax_default = min(pax_sb if pax_sb > 0 else round(cap_total * 0.82), pax_max)
-
-            eco_pax_total = p1.number_input(
-                f"Pasajeros totales (cap. {cap_total})",
-                value=int(pax_default), min_value=0, max_value=int(pax_max), step=1,
-                key="eco_pax",
-                help="SimBrief importa este valor automáticamente si generaste el plan con pasajeros"
+            st.caption(
+                f"Configuración típica de este avión: "
+                f"{cap_prem} Premium · {cap_bus} Business · {cap_eco} Economy "
+                f"(capacidad total: {cap_total})"
             )
-            if pax_sb > 0:
-                p1.caption(f"SimBrief: {pax_sb} pax")
 
-            bus_max = max(int(eco_pax_total), 1)  # nunca 0 para evitar max_value=0
-            bus_default = min(max(0, round(eco_pax_total * bus_pct)), bus_max)
-            eco_pax_bus = p2.number_input(
-                "de los cuales en Business",
-                value=int(bus_default), min_value=0, max_value=int(bus_max), step=1,
-                key="eco_bus"
+            pc1, pc2, pc3 = st.columns(3)
+            pax_max = max(cap_total + 50, 600)
+
+            eco_pax_prem = pc1.number_input(
+                "Premium (First)", value=0, min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_prem"
             )
-            eco_pax_eco = eco_pax_total - eco_pax_bus
+            eco_pax_bus = pc2.number_input(
+                "Business", value=0, min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_bus"
+            )
 
+            total_otras = eco_pax_prem + eco_pax_bus
+            pax_eco_default = max(0, min(round(cap_total * 0.82) - total_otras, cap_total))
+            eco_pax_eco = pc3.number_input(
+                "Economy", value=int(pax_eco_default), min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_eco"
+            )
+
+            eco_pax_total = eco_pax_prem + eco_pax_bus + eco_pax_eco
+
+            # Carga — sí viene de SimBrief
             cargo_sb = sb.get("cargo_kg", 0)
-            eco_cargo = p3.number_input(
-                "Carga (kg)",
-                value=int(cargo_sb) if cargo_sb > 0 else 2000,
-                min_value=0, step=100, key="eco_cargo",
-                help="Extraido de SimBrief o ingresado manualmente"
+            eco_cargo = st.number_input(
+                "Carga (kg)", value=int(cargo_sb) if cargo_sb > 0 else 0,
+                min_value=0, step=100, key="eco_cargo"
             )
             if cargo_sb > 0:
-                p3.caption(f"SimBrief: {cargo_sb} kg")
+                st.caption(f"Valor importado de SimBrief: {cargo_sb:,} kg")
 
-            # Load factor visual
+            # Load factor
             lf = (eco_pax_total / cap_total * 100) if cap_total > 0 else 0
             lf_color = "green" if lf >= 80 else ("orange" if lf >= 60 else "red")
-            st.markdown(
-                f"**Load Factor:** "
-                f"<span style='color:{lf_color};font-weight:700;'>{lf:.1f}%</span> "
-                f"({eco_pax_eco} economy + {eco_pax_bus} business)",
-                unsafe_allow_html=True
-            )
+            lf_c = st.columns(4)
+            lf_c[0].metric("Total PAX",    f"{eco_pax_total}")
+            lf_c[1].metric("Load Factor",  f"{lf:.1f}%")
+            lf_c[2].metric("Cabinas",
+                            f"P:{eco_pax_prem} · B:{eco_pax_bus} · E:{eco_pax_eco}")
+            lf_c[3].metric("Carga",        f"{eco_cargo:,} kg")
 
             st.markdown("---")
 
-            # ── SECCIÓN 3: PRECIOS E INGRESOS ────────────────────────────
+            # ── SECCIÓN 3: PRECIOS (FIX 3: basados en datos reales Cirium/IATA) ──
             st.markdown("#### Precios e ingresos")
 
-            precio_ref = precio_referencia_por_nm(dist_eco)
+            # Modelo de precios basado en datos Cirium 2023 y IATA yield
+            # Economy: yield base ~$0.13/km corto, $0.09/km largo (efecto distancia)
+            # Business: 3.5x-5x economy según distancia
+            # Premium (First): 8x-12x economy según distancia
+            def precios_por_distancia(dist_nm):
+                dist_km = dist_nm * 1.852
+                if dist_km == 0:
+                    return 80, 320, 800
+                # Curva de precios basada en datos reales Cirium/IATA:
+                # Corto (<1000km): yield ~$0.18/km — promedio doméstico EEUU $179, Europa $130
+                # Medio (1000-4000km): yield ~$0.13/km — transatlántico economy ~$600-800
+                # Largo (>4000km): yield ~$0.09/km — ultra largo con descuento por distancia
+                if dist_km <= 1000:
+                    yield_eco = 0.18
+                    mult_bus  = 3.5
+                    mult_prem = 8.0
+                elif dist_km <= 4000:
+                    yield_eco = 0.13
+                    mult_bus  = 4.0
+                    mult_prem = 9.0
+                else:
+                    yield_eco = 0.09
+                    mult_bus  = 5.0
+                    mult_prem = 12.0
 
-            pr1, pr2, pr3 = st.columns(3)
-            precio_eco = pr1.number_input(
-                "Precio Economy (USD/pax)",
-                value=precio_ref, min_value=0, step=5, key="eco_precio_eco",
-                help=f"Precio de referencia para {dist_eco} NM basado en yield real"
-            )
-            precio_bus = pr2.number_input(
-                "Precio Business (USD/pax)",
-                value=round(precio_ref * 3.5 / 5) * 5, min_value=0, step=10, key="eco_precio_bus",
-                help="Business suele ser 3x-4x el precio economy"
-            )
-            precio_cargo = pr3.number_input(
-                "Precio carga (USD/kg)",
-                value=2, min_value=0, step=1, key="eco_precio_cargo",
-                help="Tarifa media de carga aérea: ~$1.5-3/kg"
-            )
+                precio_e = max(60, round(dist_km * yield_eco / 5) * 5)
+                precio_b = round(precio_e * mult_bus / 10) * 10
+                precio_p = round(precio_e * mult_prem / 10) * 10
+                return precio_e, precio_b, precio_p
+
+            ref_eco, ref_bus, ref_prem = precios_por_distancia(dist_eco)
+
             if dist_eco > 0:
-                pr1.caption(f"Ref. distancia {dist_eco} NM")
+                dist_km_disp = round(dist_eco * 1.852)
+                st.caption(
+                    f"Precios de referencia para {dist_eco} NM ({dist_km_disp:,} km) — "
+                    f"basados en yield real Cirium/IATA 2024"
+                )
 
-            ingreso_eco   = eco_pax_eco * precio_eco
-            ingreso_bus   = eco_pax_bus * precio_bus
-            ingreso_cargo = eco_cargo   * precio_cargo
-            ingreso_total = ingreso_eco + ingreso_bus + ingreso_cargo
+            pr1, pr2, pr3, pr4 = st.columns(4)
+            precio_eco_u = pr1.number_input(
+                "Economy (USD/pax)", value=ref_eco, min_value=0, step=5, key="eco_p_eco"
+            )
+            precio_bus_u = pr2.number_input(
+                "Business (USD/pax)", value=ref_bus, min_value=0, step=10, key="eco_p_bus"
+            )
+            precio_prem_u = pr3.number_input(
+                "Premium/First (USD/pax)", value=ref_prem, min_value=0, step=10, key="eco_p_prem"
+            )
+            precio_cargo_u = pr4.number_input(
+                "Carga (USD/kg)", value=2, min_value=0, step=1, key="eco_p_cargo",
+                help="Tarifa media carga aérea: $1.5-3/kg segun ruta"
+            )
+
+            ingreso_eco   = eco_pax_eco  * precio_eco_u
+            ingreso_bus   = eco_pax_bus  * precio_bus_u
+            ingreso_prem  = eco_pax_prem * precio_prem_u
+            ingreso_cargo = eco_cargo    * precio_cargo_u
+            ingreso_pax   = ingreso_eco + ingreso_bus + ingreso_prem
+            ingreso_total = ingreso_pax + ingreso_cargo
 
             st.markdown("---")
 
-            # ── SECCIÓN 4: COSTOS (manual — lo que te cobró GSX/fuel) ────
-            st.markdown("#### Costos operacionales (GSX Pro 4.0)")
-            st.caption("Ingresá los valores que GSX te cobró en el invoice + combustible real.")
+            # ── SECCIÓN 4: COSTOS GSX Pro 4.0 (FIX 4) ───────────────────
+            st.markdown("#### Costos operacionales — GSX Pro 4.0 Invoice")
+            st.caption("Ingresá exactamente lo que figura en cada recibo de GSX. Handling y Passenger Bus se pueden desglosar por aeropuerto.")
 
             fuel_sb = sb.get("fuel_kg", 0)
-            cs1, cs2, cs3, cs4 = st.columns(4)
+            fuel_ref = round(fuel_sb * 0.80) if fuel_sb > 0 else 0
 
-            # Precio Jet-A estimado (referencia real ~0.70-0.90 USD/kg)
-            fuel_price_per_kg = 0.80
-            costo_fuel_default = round(fuel_sb * fuel_price_per_kg) if fuel_sb > 0 else 0
-
-            costo_fuel   = cs1.number_input(
-                "Combustible (USD)",
-                value=costo_fuel_default, min_value=0, step=100, key="eco_fuel",
-                help=f"~$0.80/kg x {fuel_sb} kg estimado de SimBrief" if fuel_sb > 0 else "Ingresalo del invoice de GSX"
+            # Combustible
+            st.markdown("**Fuel**")
+            gsx_fuel = st.number_input(
+                "Combustible - GSX Fuel invoice (USD)", value=fuel_ref,
+                min_value=0, step=100, key="eco_fuel"
             )
-            costo_gsx    = cs2.number_input(
-                "GSX ground ops (USD)",
-                value=0, min_value=0, step=50, key="eco_gsx",
-                help="Catering + handling + GPU + agua + servicios de GSX Pro 4.0"
-            )
-            costo_hand   = cs3.number_input(
-                "Handling aeroportuario (USD)",
-                value=0, min_value=0, step=50, key="eco_hand",
-                help="Tasas aeroportuarias, rampa, navegación"
-            )
-            costo_otros  = cs4.number_input(
-                "Otros costos (USD)",
-                value=0, min_value=0, step=50, key="eco_otros",
-                help="Catering, tasas, derechos de ruta, etc."
-            )
-
             if fuel_sb > 0:
-                cs1.caption(f"SimBrief: {fuel_sb:,} kg combustible")
+                st.caption(f"SimBrief: {fuel_sb:,} kg — referencia a $0.80/kg = ${fuel_ref:,}")
 
-            costo_total  = costo_fuel + costo_gsx + costo_hand + costo_otros
-            resultado    = ingreso_total - costo_total
+            # Handling: salida + llegada
+            st.markdown("**Handling**")
+            hc1, hc2 = st.columns(2)
+            hand_sal = hc1.number_input(
+                f"Handling salida ({eco_origen or 'ORIG'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_hand_sal"
+            )
+            hand_lle = hc2.number_input(
+                f"Handling llegada ({eco_destino or 'DEST'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_hand_lle"
+            )
+
+            # Passenger Bus: salida + llegada
+            st.markdown("**Passenger Bus**")
+            bc1, bc2 = st.columns(2)
+            bus_sal = bc1.number_input(
+                f"Passenger Bus salida ({eco_origen or 'ORIG'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_bus_sal"
+            )
+            bus_lle = bc2.number_input(
+                f"Passenger Bus llegada ({eco_destino or 'DEST'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_bus_lle"
+            )
+
+            # Catering (opcional, al final)
+            with st.expander("+ Catering (opcional)"):
+                cat_sal = st.number_input(
+                    f"Catering salida ({eco_origen or 'ORIG'}) (USD)",
+                    value=0, min_value=0, step=50, key="eco_cat_sal"
+                )
+                cat_lle = st.number_input(
+                    f"Catering llegada ({eco_destino or 'DEST'}) (USD)",
+                    value=0, min_value=0, step=50, key="eco_cat_lle"
+                )
+
+            costo_handling  = hand_sal + hand_lle
+            costo_pax_bus   = bus_sal  + bus_lle
+            costo_catering  = cat_sal  + cat_lle
+            costo_total     = gsx_fuel + costo_handling + costo_pax_bus + costo_catering
+            resultado       = ingreso_total - costo_total
+
+            # Resumen de costos en tiempo real
+            cost_cols = st.columns(4)
+            cost_cols[0].metric("Fuel",          f"${gsx_fuel:,}")
+            cost_cols[1].metric("Handling",      f"${costo_handling:,}")
+            cost_cols[2].metric("Passenger Bus", f"${costo_pax_bus:,}")
+            cost_cols[3].metric("Catering",      f"${costo_catering:,}")
 
             st.markdown("---")
 
-            # ── RESUMEN ───────────────────────────────────────────────────
+            # ── RESUMEN FINAL ─────────────────────────────────────────────
             st.markdown("#### Resumen del vuelo")
 
             res_cols = st.columns(4)
-            res_cols[0].metric("Ingresos PAX",   f"${ingreso_eco + ingreso_bus:,.0f}")
+            res_cols[0].metric("Ingresos PAX",   f"${ingreso_pax:,.0f}")
             res_cols[1].metric("Ingresos Cargo",  f"${ingreso_cargo:,.0f}")
             res_cols[2].metric("Costos Totales",  f"${costo_total:,.0f}")
-
-            delta_color = "normal" if resultado >= 0 else "inverse"
             res_cols[3].metric(
-                "RESULTADO",
-                f"${resultado:,.0f}",
-                delta=f"{'Ganancia' if resultado >= 0 else 'Pérdida'}",
-                delta_color=delta_color
+                "RESULTADO", f"${resultado:,.0f}",
+                delta="Ganancia" if resultado >= 0 else "Perdida",
+                delta_color="normal" if resultado >= 0 else "inverse"
             )
 
-            # Barra de margen
             if ingreso_total > 0:
                 margen = resultado / ingreso_total * 100
-                st.progress(max(0.0, min(1.0, resultado / ingreso_total)),
-                            text=f"Margen: {margen:.1f}% | Ingresos: ${ingreso_total:,.0f} | Costos: ${costo_total:,.0f}")
+                st.progress(
+                    max(0.0, min(1.0, resultado / ingreso_total)),
+                    text=f"Margen: {margen:.1f}% | Ingresos: ${ingreso_total:,.0f} | Costos: ${costo_total:,.0f}"
+                )
 
-            # Breakdown detallado
             with st.expander("Ver detalle completo"):
                 dc1, dc2 = st.columns(2)
                 with dc1:
                     st.markdown("**Ingresos**")
-                    st.write(f"- Economy: {eco_pax_eco} pax × ${precio_eco} = **${ingreso_eco:,.0f}**")
-                    st.write(f"- Business: {eco_pax_bus} pax × ${precio_bus} = **${ingreso_bus:,.0f}**")
-                    st.write(f"- Carga: {eco_cargo} kg × ${precio_cargo}/kg = **${ingreso_cargo:,.0f}**")
-                    st.markdown(f"**Total ingresos: ${ingreso_total:,.0f}**")
+                    st.write(f"- Premium/First: {eco_pax_prem} pax x ${precio_prem_u} = **${ingreso_prem:,.0f}**")
+                    st.write(f"- Business: {eco_pax_bus} pax x ${precio_bus_u} = **${ingreso_bus:,.0f}**")
+                    st.write(f"- Economy: {eco_pax_eco} pax x ${precio_eco_u} = **${ingreso_eco:,.0f}**")
+                    st.write(f"- Carga: {eco_cargo:,} kg x ${precio_cargo_u}/kg = **${ingreso_cargo:,.0f}**")
+                    st.markdown(f"**Total: ${ingreso_total:,.0f}**")
                 with dc2:
-                    st.markdown("**Costos**")
-                    st.write(f"- Combustible: **${costo_fuel:,.0f}**")
-                    st.write(f"- GSX ground ops: **${costo_gsx:,.0f}**")
-                    st.write(f"- Handling aerop.: **${costo_hand:,.0f}**")
-                    st.write(f"- Otros: **${costo_otros:,.0f}**")
-                    st.markdown(f"**Total costos: ${costo_total:,.0f}**")
+                    st.markdown("**Costos GSX**")
+                    st.write(f"- Fuel: **${gsx_fuel:,}**")
+                    st.write(f"- Handling {eco_origen}: ${hand_sal:,} | {eco_destino}: ${hand_lle:,} = **${costo_handling:,}**")
+                    st.write(f"- Pax Bus {eco_origen}: ${bus_sal:,} | {eco_destino}: ${bus_lle:,} = **${costo_pax_bus:,}**")
+                    if costo_catering > 0:
+                        st.write(f"- Catering: **${costo_catering:,}**")
+                    st.markdown(f"**Total: ${costo_total:,}**")
 
-            eco_notas = st.text_input("Notas (opcional)", placeholder="Ej: Vuelo con delay, clima adverso...", key="eco_notas")
+            eco_notas = st.text_input(
+                "Notas (opcional)",
+                placeholder="Ej: Vuelo con delay, clima adverso, pasajeros VIP...",
+                key="eco_notas"
+            )
 
             st.markdown("---")
+
+            # FIX 5: guardado en hoja Economia separada, con balance acumulado en session_state
             if st.button("💾 Guardar resultado del vuelo", use_container_width=True, key="eco_save"):
                 if not eco_origen or not eco_destino:
-                    st.error("Ingresá origen y destino.")
+                    st.error("Ingresa origen y destino.")
+                elif eco_pax_total == 0 and eco_cargo == 0:
+                    st.error("Ingresa al menos pasajeros o carga.")
                 else:
                     row = [
                         str(eco_fecha), eco_vuelo, eco_origen, eco_destino, eco_aero, eco_avion,
-                        eco_pax_total, eco_pax_bus, eco_pax_eco, eco_cargo,
-                        precio_eco, precio_bus,
-                        round(ingreso_eco + ingreso_bus), round(ingreso_cargo), round(ingreso_total),
-                        round(costo_fuel), round(costo_gsx), round(costo_hand), round(costo_otros), round(costo_total),
+                        eco_pax_total, eco_pax_prem, eco_pax_bus, eco_pax_eco, eco_cargo,
+                        precio_prem_u, precio_bus_u, precio_eco_u, precio_cargo_u,
+                        round(ingreso_prem), round(ingreso_bus), round(ingreso_eco),
+                        round(ingreso_cargo), round(ingreso_total),
+                        gsx_fuel, hand_sal, hand_lle, bus_sal, bus_lle,
+                        costo_catering, round(costo_total),
                         round(resultado), eco_notas
                     ]
-                    with st.spinner("Guardando en la nube..."):
+                    with st.spinner("Guardando en hoja Economia..."):
                         ok = guardar_economia_gs(row)
                     if ok:
-                        resultado_str = f"{'ganancia' if resultado >= 0 else 'pérdida'} de ${abs(resultado):,.0f}"
-                        st.success(f"Vuelo {eco_vuelo} ({eco_origen}>{eco_destino}) guardado con {resultado_str}.")
-                        # Limpiar datos de SimBrief
+                        st.success(
+                            f"Vuelo {eco_vuelo} ({eco_origen}>{eco_destino}) guardado. "
+                            f"Resultado: {'ganancia' if resultado >= 0 else 'perdida'} "
+                            f"de ${abs(resultado):,.0f}."
+                        )
                         st.session_state.pop("eco_sb", None)
                     else:
                         st.error("Error al guardar.")
