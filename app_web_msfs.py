@@ -1204,17 +1204,25 @@ def main_app():
         with tab_nuevo:
             st.subheader("Calcular resultado del vuelo")
 
-            # Importar desde SimBrief (solo carga/fuel, no pax)
+            # Importar desde SimBrief — pre-pobla session_state ANTES de renderizar los widgets
             with st.expander("📥 Importar datos de SimBrief (carga y combustible)", expanded=True):
                 sb_col1, sb_col2 = st.columns([3, 1])
-                sb_user_eco = sb_col1.text_input("Usuario SimBrief", key="sb_eco")
+                sb_user_eco = sb_col1.text_input("Usuario SimBrief", key="sb_eco_user")
                 if sb_col2.button("Importar", key="import_eco"):
                     datos_sb, err_sb = obtener_datos_simbrief(sb_user_eco)
                     if datos_sb:
                         st.session_state["eco_sb"] = datos_sb
-                        st.success(f"Cargado: {datos_sb['origen']} > {datos_sb['destino']} | "
-                                   f"Carga: {datos_sb.get('cargo_kg',0):,} kg | "
-                                   f"Combustible: {datos_sb.get('fuel_kg',0):,} kg")
+                        # Pre-poblar los campos — Streamlit respeta value de session_state
+                        # solo si la key NO existe aún o la sobreescribimos explícitamente
+                        st.session_state["eco_num"]  = datos_sb.get("no_vuelo", "")
+                        st.session_state["eco_orig"] = datos_sb.get("origen", "").upper()
+                        st.session_state["eco_dest"] = datos_sb.get("destino", "").upper()
+                        st.success(
+                            f"Cargado: {datos_sb['origen']} > {datos_sb['destino']} | "
+                            f"Carga: {datos_sb.get('cargo_kg',0):,} kg | "
+                            f"Combustible: {datos_sb.get('fuel_kg',0):,} kg"
+                        )
+                        st.rerun()
                     else:
                         st.error(err_sb)
 
@@ -1224,9 +1232,15 @@ def main_app():
             st.markdown("#### Datos del vuelo")
             e1, e2, e3, e4 = st.columns(4)
             eco_fecha   = e1.date_input("Fecha", value=datetime.now(), key="eco_fecha")
-            eco_vuelo   = e2.text_input("N° Vuelo", value=sb.get("no_vuelo", ""), key="eco_num")
-            eco_origen  = e3.text_input("Origen ICAO", value=sb.get("origen", "").upper(), key="eco_orig").upper()
-            eco_destino = e4.text_input("Destino ICAO", value=sb.get("destino", "").upper(), key="eco_dest").upper()
+
+            # Usar session_state como valor inicial — si SimBrief los llenó, aparecen ya
+            if "eco_num"  not in st.session_state: st.session_state["eco_num"]  = ""
+            if "eco_orig" not in st.session_state: st.session_state["eco_orig"] = ""
+            if "eco_dest" not in st.session_state: st.session_state["eco_dest"] = ""
+
+            eco_vuelo   = e2.text_input("N° Vuelo",     key="eco_num")
+            eco_origen  = e3.text_input("Origen ICAO",  key="eco_orig").strip().upper()
+            eco_destino = e4.text_input("Destino ICAO", key="eco_dest").strip().upper()
 
             # FIX 1: Aerolínea con desplegable igual que en Registro de Vuelo
             st.markdown("##### Aerolínea")
@@ -1309,9 +1323,14 @@ def main_app():
 
             # Carga — sí viene de SimBrief
             cargo_sb = sb.get("cargo_kg", 0)
+            if "eco_cargo" not in st.session_state:
+                st.session_state["eco_cargo"] = int(cargo_sb) if cargo_sb > 0 else 0
+            elif cargo_sb > 0 and st.session_state.get("_last_cargo_sb") != cargo_sb:
+                st.session_state["eco_cargo"] = int(cargo_sb)
+                st.session_state["_last_cargo_sb"] = cargo_sb
+
             eco_cargo = st.number_input(
-                "Carga (kg)", value=int(cargo_sb) if cargo_sb > 0 else 0,
-                min_value=0, step=100, key="eco_cargo"
+                "Carga (kg)", min_value=0, step=100, key="eco_cargo"
             )
             if cargo_sb > 0:
                 st.caption(f"Valor importado de SimBrief: {cargo_sb:,} kg")
@@ -1401,10 +1420,16 @@ def main_app():
             fuel_sb = sb.get("fuel_kg", 0)
             fuel_ref = round(fuel_sb * 0.80) if fuel_sb > 0 else 0
 
+            if "eco_fuel" not in st.session_state:
+                st.session_state["eco_fuel"] = fuel_ref
+            elif fuel_ref > 0 and st.session_state.get("_last_fuel_sb") != fuel_sb:
+                st.session_state["eco_fuel"] = fuel_ref
+                st.session_state["_last_fuel_sb"] = fuel_sb
+
             # Combustible
             st.markdown("**Fuel**")
             gsx_fuel = st.number_input(
-                "Combustible - GSX Fuel invoice (USD)", value=fuel_ref,
+                "Combustible - GSX Fuel invoice (USD)",
                 min_value=0, step=100, key="eco_fuel"
             )
             if fuel_sb > 0:
