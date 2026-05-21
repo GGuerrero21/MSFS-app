@@ -574,14 +574,6 @@ def obtener_notams(icao_code, api_key):
 def main_app():
     st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
 
-    st.markdown("""
-        <style>
-        [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
-            overflow-y: hidden !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
     modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
     if modo_grande:
         st.markdown("""
@@ -603,44 +595,37 @@ def main_app():
         st.success(f"🎉 ¡Subiste de rango! Ahora eres **{rango}** {icono}")
     st.session_state["rango_anterior"] = rango
 
-    st.sidebar.markdown(f"### {icono} {rango}")
-    st.sidebar.metric("Horas Totales", f"{horas_act:.1f} h")
+    # Rango + horas en una línea compacta
+    st.sidebar.markdown(f"**{icono} {rango}** · `{horas_act:.1f} h`")
     if horas_next != 1000:
         st.sidebar.progress(min(horas_act / horas_next, 1.0))
         st.sidebar.caption(f"Próximo rango en {horas_next - horas_act:.1f} h")
 
+    # Último vuelo compacto
     if not df_log.empty:
         ultimo = df_log.iloc[-1]
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**✈️ Último vuelo**")
-        st.sidebar.caption(f"🛫 {ultimo.get('Origen', '?')} → {ultimo.get('Destino', '?')}")
-        st.sidebar.caption(f"⏱️ {ultimo.get('Tiempo_Vuelo_Horas', '0')} | 🛬 {ultimo.get('Landing_Rate_FPM', 0)} fpm")
+        st.sidebar.markdown(
+            f"✈️ **{ultimo.get('Origen','?')}→{ultimo.get('Destino','?')}** "
+            f"· {ultimo.get('Tiempo_Vuelo_Horas','0')} · {ultimo.get('Landing_Rate_FPM',0)} fpm"
+        )
 
-    # Balance económico en sidebar
+    # Balance económico compacto
     df_eco_sb = leer_economia()
     st.sidebar.markdown("---")
     if not df_eco_sb.empty and "Resultado_USD" in df_eco_sb.columns:
         balance = float(df_eco_sb["Resultado_USD"].sum())
-        ultimo_eco = df_eco_sb.iloc[-1]
-        ultimo_res = float(ultimo_eco.get("Resultado_USD", 0))
-        color = "#2ecc71" if balance >= 0 else "#e74c3c"
-        icono_b = "📈" if balance >= 0 else "📉"
+        ultimo_res = float(df_eco_sb.iloc[-1].get("Resultado_USD", 0))
+        color_b = "#2ecc71" if balance >= 0 else "#e74c3c"
+        color_u = "#2ecc71" if ultimo_res >= 0 else "#e74c3c"
         st.sidebar.markdown(
-            f"**💰 Balance aerolínea**\n\n"
-            f"<span style='font-size:22px;font-weight:800;color:{color};'>"
-            f"{icono_b} ${balance:,.0f}</span>",
-            unsafe_allow_html=True
-        )
-        vuelos_eco = len(df_eco_sb)
-        color_ult = "#2ecc71" if ultimo_res >= 0 else "#e74c3c"
-        st.sidebar.markdown(
-            f"<span style='font-size:12px;color:#888;'>{vuelos_eco} vuelos · "
-            f"Último: <span style='color:{color_ult};font-weight:600;'>${ultimo_res:,.0f}</span></span>",
+            f"💰 **Balance:** "
+            f"<span style='color:{color_b};font-weight:700;'>${balance:,.0f}</span>"
+            f" &nbsp;·&nbsp; Último: "
+            f"<span style='color:{color_u};'>${ultimo_res:,.0f}</span>",
             unsafe_allow_html=True
         )
     else:
-        st.sidebar.markdown("**💰 Balance aerolínea**")
-        st.sidebar.caption("Sin vuelos económicos aún.")
+        st.sidebar.caption("💰 Sin vuelos económicos aún.")
 
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
