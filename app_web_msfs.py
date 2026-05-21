@@ -284,13 +284,19 @@ def conectar_gs_economia():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
         client = gspread.authorize(creds)
         doc = client.open("FlightLogbook")
-        try:
-            sheet = doc.worksheet("Economia")
-        except gspread.exceptions.WorksheetNotFound:
-            sheet = doc.add_worksheet(title="Economia", rows="2000", cols="25")
-            sheet.append_row(HEADERS_ECONOMIA)
+        # Intentar ambas variantes del nombre (con y sin tilde)
+        for nombre in ["Economia", "Economía", "economia", "economía"]:
+            try:
+                return doc.worksheet(nombre)
+            except gspread.exceptions.WorksheetNotFound:
+                continue
+        # No existe — crear con nombre sin tilde
+        sheet = doc.add_worksheet(title="Economia", rows="2000", cols="30")
+        sheet.append_row(HEADERS_ECONOMIA)
         return sheet
-    except Exception: return None
+    except Exception as e:
+        st.error(f"Error conectando a hoja Economia: {e}")
+        return None
 
 @st.cache_data(ttl=30)
 def leer_economia():
