@@ -300,16 +300,29 @@ def leer_economia():
         data = sheet.get_all_records()
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
-        num_cols = ["Pax", "Pax_Business", "Pax_Economy", "Cargo_kg",
-                    "Precio_Economy_USD", "Precio_Business_USD",
-                    "Ingreso_Pax_USD", "Ingreso_Cargo_USD", "Ingreso_Total_USD",
-                    "Costo_Combustible_USD", "Costo_GSX_USD", "Costo_Handling_USD",
-                    "Costo_Otros_USD", "Costo_Total_USD", "Resultado_USD"]
+        num_cols = [
+            "Pax_Total", "Pax_Premium", "Pax_Business", "Pax_Economy", "Cargo_kg",
+            "Precio_Premium_USD", "Precio_Business_USD", "Precio_Economy_USD", "Precio_Cargo_USD",
+            "Ingreso_Premium_USD", "Ingreso_Business_USD", "Ingreso_Economy_USD",
+            "Ingreso_Cargo_USD", "Ingreso_Total_USD",
+            "Costo_Fuel_USD", "Costo_Hand_Sal_USD", "Costo_Hand_Lle_USD",
+            "Costo_PaxBus_Sal_USD", "Costo_PaxBus_Lle_USD", "Costo_Catering_USD",
+            "Costo_Total_USD", "Resultado_USD",
+            # compatibilidad con filas viejas (columnas anteriores)
+            "Pax", "Pax_Business_old", "Pax_Economy_old",
+            "Ingreso_Pax_USD", "Costo_Combustible_USD", "Costo_GSX_USD",
+            "Costo_Handling_USD", "Costo_Otros_USD",
+        ]
         for c in num_cols:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+        # Normalizar: si vinieron con nombres viejos, mapearlos
+        if "Resultado_USD" not in df.columns and "Resultado_USD" not in df.columns:
+            df["Resultado_USD"] = 0
         return df
-    except Exception: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error leyendo economía: {e}")
+        return pd.DataFrame()
 
 def guardar_economia_gs(row_data):
     sheet = conectar_gs_economia()
@@ -602,6 +615,32 @@ def main_app():
         st.sidebar.markdown("**✈️ Último vuelo**")
         st.sidebar.caption(f"🛫 {ultimo.get('Origen', '?')} → {ultimo.get('Destino', '?')}")
         st.sidebar.caption(f"⏱️ {ultimo.get('Tiempo_Vuelo_Horas', '0')} | 🛬 {ultimo.get('Landing_Rate_FPM', 0)} fpm")
+
+    # Balance económico en sidebar
+    df_eco_sb = leer_economia()
+    st.sidebar.markdown("---")
+    if not df_eco_sb.empty and "Resultado_USD" in df_eco_sb.columns:
+        balance = float(df_eco_sb["Resultado_USD"].sum())
+        ultimo_eco = df_eco_sb.iloc[-1]
+        ultimo_res = float(ultimo_eco.get("Resultado_USD", 0))
+        color = "#2ecc71" if balance >= 0 else "#e74c3c"
+        icono_b = "📈" if balance >= 0 else "📉"
+        st.sidebar.markdown(
+            f"**💰 Balance aerolínea**\n\n"
+            f"<span style='font-size:22px;font-weight:800;color:{color};'>"
+            f"{icono_b} ${balance:,.0f}</span>",
+            unsafe_allow_html=True
+        )
+        vuelos_eco = len(df_eco_sb)
+        color_ult = "#2ecc71" if ultimo_res >= 0 else "#e74c3c"
+        st.sidebar.markdown(
+            f"<span style='font-size:12px;color:#888;'>{vuelos_eco} vuelos · "
+            f"Último: <span style='color:{color_ult};font-weight:600;'>${ultimo_res:,.0f}</span></span>",
+            unsafe_allow_html=True
+        )
+    else:
+        st.sidebar.markdown("**💰 Balance aerolínea**")
+        st.sidebar.caption("Sin vuelos económicos aún.")
 
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
@@ -1593,15 +1632,16 @@ def main_app():
 
                 for i, row in df_eco_d.iterrows():
                     res_vuelo = float(row.get("Resultado_USD", 0))
-                    color = "#1a3a1a" if res_vuelo >= 0 else "#3a1a1a"
                     icono = "📈" if res_vuelo >= 0 else "📉"
+                    # Compatibilidad: Pax_Total (nuevo) o Pax (viejo)
+                    pax_disp = int(row.get("Pax_Total", row.get("Pax", 0)) or 0)
 
                     with st.container():
                         h1, h2, h3, h4, h5, h6 = st.columns([1.5, 1.5, 2, 1.5, 1.5, 0.8])
                         h1.markdown(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
                         h2.caption(f"{row.get('Fecha','')} | {row.get('Vuelo','')}")
                         h3.caption(f"{row.get('Aerolinea','')} | {row.get('Avion','')}")
-                        h4.caption(f"{int(row.get('Pax',0))} pax | {int(row.get('Cargo_kg',0))} kg")
+                        h4.caption(f"{pax_disp} pax | {int(row.get('Cargo_kg',0) or 0)} kg")
                         h5.markdown(f"{icono} **${res_vuelo:,.0f}**")
                         if h6.button("🗑️", key=f"del_eco_{i}"):
                             st.session_state[f"confirm_del_eco_{i}"] = True
@@ -1619,14 +1659,32 @@ def main_app():
 
                         with st.expander("Ver detalle", expanded=False):
                             d1, d2, d3 = st.columns(3)
-                            d1.metric("Ingresos PAX",  f"${float(row.get('Ingreso_Pax_USD',0)):,.0f}")
-                            d1.metric("Ingresos Cargo",f"${float(row.get('Ingreso_Cargo_USD',0)):,.0f}")
-                            d2.metric("Costo Fuel",    f"${float(row.get('Costo_Combustible_USD',0)):,.0f}")
-                            d2.metric("Costo GSX",     f"${float(row.get('Costo_GSX_USD',0)):,.0f}")
-                            d3.metric("Total Ingresos",f"${float(row.get('Ingreso_Total_USD',0)):,.0f}")
-                            d3.metric("Total Costos",  f"${float(row.get('Costo_Total_USD',0)):,.0f}")
-                            if row.get("Notas"):
-                                st.caption(f"Notas: {row['Notas']}")
+                            # Ingresos — nombres nuevos con fallback a viejos
+                            ing_pax   = float(row.get("Ingreso_Premium_USD", 0) or 0) + \
+                                        float(row.get("Ingreso_Business_USD", 0) or 0) + \
+                                        float(row.get("Ingreso_Economy_USD", 0) or 0) or \
+                                        float(row.get("Ingreso_Pax_USD", 0) or 0)
+                            ing_cargo = float(row.get("Ingreso_Cargo_USD", 0) or 0)
+                            ing_tot   = float(row.get("Ingreso_Total_USD", 0) or 0)
+                            # Costos — nombres nuevos con fallback
+                            cst_fuel  = float(row.get("Costo_Fuel_USD", 0) or 0) or \
+                                        float(row.get("Costo_Combustible_USD", 0) or 0)
+                            hand_tot  = float(row.get("Costo_Hand_Sal_USD", 0) or 0) + \
+                                        float(row.get("Costo_Hand_Lle_USD", 0) or 0) or \
+                                        float(row.get("Costo_Handling_USD", 0) or 0)
+                            pbus_tot  = float(row.get("Costo_PaxBus_Sal_USD", 0) or 0) + \
+                                        float(row.get("Costo_PaxBus_Lle_USD", 0) or 0)
+                            catering  = float(row.get("Costo_Catering_USD", 0) or 0)
+                            cst_tot   = float(row.get("Costo_Total_USD", 0) or 0)
+                            d1.metric("Ingresos PAX",    f"${ing_pax:,.0f}")
+                            d1.metric("Ingresos Cargo",  f"${ing_cargo:,.0f}")
+                            d2.metric("Fuel",            f"${cst_fuel:,.0f}")
+                            d2.metric("Handling",        f"${hand_tot:,.0f}")
+                            d3.metric("Total Ingresos",  f"${ing_tot:,.0f}")
+                            d3.metric("Total Costos",    f"${cst_tot:,.0f}")
+                            if pbus_tot: st.caption(f"Passenger Bus: ${pbus_tot:,.0f}")
+                            if catering: st.caption(f"Catering: ${catering:,.0f}")
+                            if row.get("Notas"): st.caption(f"Notas: {row['Notas']}")
                     st.divider()
 
                 # Exportar
@@ -1642,14 +1700,26 @@ def main_app():
             else:
                 st.subheader("Dashboard Económico")
 
+                # Normalizar columnas con fallback a nombres viejos
+                def col_sum(df, *cols):
+                    total = 0
+                    for c in cols:
+                        if c in df.columns:
+                            total += pd.to_numeric(df[c], errors='coerce').fillna(0).sum()
+                    return total
+
+                total_ingresos = col_sum(df_eco2, "Ingreso_Total_USD")
+                total_costos   = col_sum(df_eco2, "Costo_Total_USD")
+                total_res      = col_sum(df_eco2, "Resultado_USD")
+                total_pax      = col_sum(df_eco2, "Pax_Total", "Pax")
+
                 # KPIs globales
                 k1, k2, k3, k4, k5 = st.columns(5)
                 k1.metric("Vuelos",          len(df_eco2))
-                k2.metric("Ingresos totales",f"${df_eco2['Ingreso_Total_USD'].sum():,.0f}")
-                k3.metric("Costos totales",  f"${df_eco2['Costo_Total_USD'].sum():,.0f}")
-                k4.metric("Resultado neto",  f"${df_eco2['Resultado_USD'].sum():,.0f}",
-                           delta_color="normal" if df_eco2['Resultado_USD'].sum() >= 0 else "inverse")
-                total_pax = df_eco2['Pax'].sum()
+                k2.metric("Ingresos totales",f"${total_ingresos:,.0f}")
+                k3.metric("Costos totales",  f"${total_costos:,.0f}")
+                k4.metric("Resultado neto",  f"${total_res:,.0f}",
+                           delta_color="normal" if total_res >= 0 else "inverse")
                 k5.metric("Total pasajeros", f"{int(total_pax):,}")
 
                 st.markdown("---")
@@ -1657,7 +1727,6 @@ def main_app():
                 col_g1, col_g2 = st.columns(2)
 
                 with col_g1:
-                    # Resultado por vuelo
                     fig_res = px.bar(
                         df_eco2,
                         x=df_eco2.apply(lambda r: f"{r.get('Origen','?')}>{r.get('Destino','?')}", axis=1),
@@ -1671,23 +1740,38 @@ def main_app():
                     st.plotly_chart(fig_res, use_container_width=True)
 
                 with col_g2:
-                    # Desglose ingresos vs costos promedio
-                    avg_ing   = df_eco2[["Ingreso_Pax_USD", "Ingreso_Cargo_USD"]].mean()
-                    avg_costo = df_eco2[["Costo_Combustible_USD", "Costo_GSX_USD",
-                                         "Costo_Handling_USD", "Costo_Otros_USD"]].mean()
+                    # Desglose promedio con columnas nuevas y fallback a viejas
+                    def avg_col(df, *cols):
+                        for c in cols:
+                            if c in df.columns:
+                                return pd.to_numeric(df[c], errors='coerce').fillna(0).mean()
+                        return 0
 
-                    labels = ["PAX", "Cargo", "Fuel", "GSX", "Handling", "Otros"]
-                    values = [avg_ing["Ingreso_Pax_USD"], avg_ing["Ingreso_Cargo_USD"],
-                              avg_costo["Costo_Combustible_USD"], avg_costo["Costo_GSX_USD"],
-                              avg_costo["Costo_Handling_USD"], avg_costo["Costo_Otros_USD"]]
+                    ing_pax_avg = (avg_col(df_eco2, "Ingreso_Premium_USD") +
+                                   avg_col(df_eco2, "Ingreso_Business_USD") +
+                                   avg_col(df_eco2, "Ingreso_Economy_USD") or
+                                   avg_col(df_eco2, "Ingreso_Pax_USD"))
+                    labels = ["PAX", "Cargo", "Fuel", "Handling", "Pax Bus", "Catering"]
+                    values = [
+                        ing_pax_avg,
+                        avg_col(df_eco2, "Ingreso_Cargo_USD"),
+                        avg_col(df_eco2, "Costo_Fuel_USD", "Costo_Combustible_USD"),
+                        avg_col(df_eco2, "Costo_Hand_Sal_USD") + avg_col(df_eco2, "Costo_Hand_Lle_USD") or
+                            avg_col(df_eco2, "Costo_Handling_USD"),
+                        avg_col(df_eco2, "Costo_PaxBus_Sal_USD") + avg_col(df_eco2, "Costo_PaxBus_Lle_USD"),
+                        avg_col(df_eco2, "Costo_Catering_USD"),
+                    ]
                     colors = ["#2ecc71", "#27ae60", "#e74c3c", "#c0392b", "#e67e22", "#d35400"]
-
-                    fig_pie = px.pie(
-                        values=values, names=labels,
-                        title="Desglose promedio por vuelo (USD)",
-                        color_discrete_sequence=colors
-                    )
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    # Filtrar valores 0 para no llenar el pie de segmentos vacíos
+                    labels_f = [l for l, v in zip(labels, values) if v > 0]
+                    values_f = [v for v in values if v > 0]
+                    if values_f:
+                        fig_pie = px.pie(
+                            values=values_f, names=labels_f,
+                            title="Desglose promedio por vuelo (USD)",
+                            color_discrete_sequence=colors[:len(values_f)]
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True)
 
                 # Evolución acumulada
                 if 'Fecha' in df_eco2.columns:
