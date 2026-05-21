@@ -303,9 +303,21 @@ def leer_economia():
     sheet = conectar_gs_economia()
     if not sheet: return pd.DataFrame()
     try:
-        data = sheet.get_all_records()
-        if not data: return pd.DataFrame()
-        df = pd.DataFrame(data)
+        # Usar get_all_values en lugar de get_all_records para evitar el error
+        # "Unable to parse range" cuando la hoja está vacía o sin headers
+        all_values = sheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return pd.DataFrame()
+        headers = all_values[0]
+        rows = all_values[1:]
+        # Filtrar filas completamente vacías
+        rows = [r for r in rows if any(str(c).strip() for c in r)]
+        if not rows:
+            return pd.DataFrame()
+        # Igualar longitud de filas a headers
+        n = len(headers)
+        rows = [r[:n] + [''] * max(0, n - len(r)) for r in rows]
+        df = pd.DataFrame(rows, columns=headers)
         num_cols = [
             "Pax_Total", "Pax_Premium", "Pax_Business", "Pax_Economy", "Cargo_kg",
             "Precio_Premium_USD", "Precio_Business_USD", "Precio_Economy_USD", "Precio_Cargo_USD",
@@ -314,16 +326,14 @@ def leer_economia():
             "Costo_Fuel_USD", "Costo_Hand_Sal_USD", "Costo_Hand_Lle_USD",
             "Costo_PaxBus_Sal_USD", "Costo_PaxBus_Lle_USD", "Costo_Catering_USD",
             "Costo_Total_USD", "Resultado_USD",
-            # compatibilidad con filas viejas (columnas anteriores)
-            "Pax", "Pax_Business_old", "Pax_Economy_old",
-            "Ingreso_Pax_USD", "Costo_Combustible_USD", "Costo_GSX_USD",
-            "Costo_Handling_USD", "Costo_Otros_USD",
+            # compatibilidad nombres viejos
+            "Pax", "Ingreso_Pax_USD", "Costo_Combustible_USD",
+            "Costo_GSX_USD", "Costo_Handling_USD", "Costo_Otros_USD",
         ]
         for c in num_cols:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-        # Normalizar: si vinieron con nombres viejos, mapearlos
-        if "Resultado_USD" not in df.columns and "Resultado_USD" not in df.columns:
+        if "Resultado_USD" not in df.columns:
             df["Resultado_USD"] = 0
         return df
     except Exception as e:
@@ -591,47 +601,57 @@ def main_app():
             </style>
         """, unsafe_allow_html=True)
 
-    # --- SIDEBAR PERFIL ---
-    st.sidebar.title("👨‍✈️ Perfil")
+    # --- SIDEBAR ---
     df_log = leer_vuelos()
     rango, icono, horas_act, horas_next = calcular_rango_xp(df_log)
 
     if st.session_state.get("rango_anterior", rango) != rango:
         st.balloons()
-        st.success(f"🎉 ¡Subiste de rango! Ahora eres **{rango}** {icono}")
+        st.success(f"¡Subiste de rango! Ahora eres **{rango}**")
     st.session_state["rango_anterior"] = rango
 
-    # Rango + horas en una línea compacta
-    st.sidebar.markdown(f"**{icono} {rango}** · `{horas_act:.1f} h`")
+    # Rango
+    st.sidebar.markdown(f"## {icono} {rango}")
+    st.sidebar.metric("Horas de vuelo", f"{horas_act:.1f} h",
+                      delta=f"faltan {horas_next - horas_act:.0f} h" if horas_next != 1000 else "Rango máximo",
+                      delta_color="off")
     if horas_next != 1000:
         st.sidebar.progress(min(horas_act / horas_next, 1.0))
-        st.sidebar.caption(f"Próximo rango en {horas_next - horas_act:.1f} h")
 
-    # Último vuelo compacto
+    st.sidebar.divider()
+
+    # Último vuelo
     if not df_log.empty:
         ultimo = df_log.iloc[-1]
-        st.sidebar.markdown(
-            f"✈️ **{ultimo.get('Origen','?')}→{ultimo.get('Destino','?')}** "
-            f"· {ultimo.get('Tiempo_Vuelo_Horas','0')} · {ultimo.get('Landing_Rate_FPM',0)} fpm"
-        )
+        orig = ultimo.get('Origen', '?')
+        dest = ultimo.get('Destino', '?')
+        tiempo = ultimo.get('Tiempo_Vuelo_Horas', '--')
+        fpm = ultimo.get('Landing_Rate_FPM', 0)
+        st.sidebar.markdown("**✈️ Último vuelo**")
+        st.sidebar.markdown(f"`{orig}` → `{dest}`")
+        col_t, col_f = st.sidebar.columns(2)
+        col_t.metric("Tiempo", str(tiempo), label_visibility="collapsed")
+        col_f.metric("Toque", f"{fpm} fpm", label_visibility="collapsed")
+        st.sidebar.caption(f"⏱ {tiempo}  ·  🛬 {fpm} fpm")
 
-    # Balance económico compacto
+    st.sidebar.divider()
+
+    # Balance económico
     df_eco_sb = leer_economia()
-    st.sidebar.markdown("---")
+    st.sidebar.markdown("**💰 Balance aerolínea**")
     if not df_eco_sb.empty and "Resultado_USD" in df_eco_sb.columns:
         balance = float(df_eco_sb["Resultado_USD"].sum())
         ultimo_res = float(df_eco_sb.iloc[-1].get("Resultado_USD", 0))
-        color_b = "#2ecc71" if balance >= 0 else "#e74c3c"
-        color_u = "#2ecc71" if ultimo_res >= 0 else "#e74c3c"
-        st.sidebar.markdown(
-            f"💰 **Balance:** "
-            f"<span style='color:{color_b};font-weight:700;'>${balance:,.0f}</span>"
-            f" &nbsp;·&nbsp; Último: "
-            f"<span style='color:{color_u};'>${ultimo_res:,.0f}</span>",
-            unsafe_allow_html=True
+        n_vuelos = len(df_eco_sb)
+        delta_txt = f"Último vuelo: ${ultimo_res:,.0f}"
+        st.sidebar.metric(
+            label=f"{n_vuelos} vuelos registrados",
+            value=f"${balance:,.0f}",
+            delta=delta_txt,
+            delta_color="normal" if ultimo_res >= 0 else "inverse"
         )
     else:
-        st.sidebar.caption("💰 Sin vuelos económicos aún.")
+        st.sidebar.caption("Sin vuelos económicos aún.")
 
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("EFB Menu", [
