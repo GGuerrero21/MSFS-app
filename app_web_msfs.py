@@ -57,22 +57,22 @@ AVIONES_BASE = [
 ]
 
 SHEET_HEADERS = [
-    "Fecha", "Origen", "Destino", "Ruta", "Aerolinea", "Num_Vuelo", "Modelo_Avion",
+    "Date", "Origen", "Destino", "Route", "Airline", "Num_Vuelo", "Modelo_Avion",
     "Hora_OUT", "Hora_IN", "Tiempo_Vuelo_Horas", "Distancia_NM", "Gate_Salida",
-    "Gate_Llegada", "Landing_Rate_FPM", "Notas"
+    "Gate_Llegada", "Landing_Rate_FPM", "Notes"
 ]
 
-HEADERS_RUTAS = ["Origen", "Destino", "Aerolinea", "Callsign", "Avion", "Categoria", "Distancia_NM", "Duracion_Est"]
+HEADERS_RUTAS = ["Origen", "Destino", "Airline", "Callsign", "Aircraft", "Category", "Distancia_NM", "Duracion_Est"]
 
 HEADERS_ECONOMIA = [
-    "Fecha", "Vuelo", "Origen", "Destino", "Aerolinea", "Avion",
+    "Date", "Vuelo", "Origen", "Destino", "Airline", "Aircraft",
     "Pax_Total", "Pax_Premium", "Pax_Business", "Pax_Economy", "Cargo_kg",
     "Precio_Premium_USD", "Precio_Business_USD", "Precio_Economy_USD", "Precio_Cargo_USD",
     "Ingreso_Premium_USD", "Ingreso_Business_USD", "Ingreso_Economy_USD",
     "Ingreso_Cargo_USD", "Ingreso_Total_USD",
     "Costo_Fuel_USD", "Costo_Hand_Sal_USD", "Costo_Hand_Lle_USD",
     "Costo_PaxBus_Sal_USD", "Costo_PaxBus_Lle_USD", "Costo_Catering_USD",
-    "Costo_Total_USD", "Resultado_USD", "Notas"
+    "Costo_Total_USD", "Resultado_USD", "Notes"
 ]
 
 # Capacidades y multiplicadores de precio por tipo de avión
@@ -488,7 +488,7 @@ def decodificar_metar(metar_raw):
     tokens = metar_raw.strip().split()
     if not tokens: return resultado
     
-    # 1. Estación y Fecha
+    # 1. Estación y Date
     if re.match(r'^[A-Z0-9]{4}$', tokens[0]): resultado['estacion'] = tokens[0]
     if len(tokens) > 1 and re.match(r'^\d{6}Z$', tokens[1]):
         resultado['fecha_hora'] = f"Día {tokens[1][0:2]}, {tokens[1][2:4]}:{tokens[1][4:6]} UTC"
@@ -588,18 +588,72 @@ def obtener_notams(icao_code, api_key):
 # 4. INTERFAZ PRINCIPAL
 # =========================================================
 def main_app():
-    st.set_page_config(page_title="MSFS EFB Ultimate", layout="wide", page_icon="✈️")
+    st.set_page_config(page_title="MSFS EFB", layout="wide", page_icon="✈️")
 
-    modo_grande = st.sidebar.toggle("👁️ Modo Texto Grande", value=False)
-    if modo_grande:
-        st.markdown("""
-            <style>
-            html, body, [class*="css"] { font-size: 20px !important; }
-            h1 { font-size: 3rem !important; }
-            h2 { font-size: 2.5rem !important; }
-            .stTextInput > div > div > input, .stSelectbox > div > div > div { font-size: 18px !important; }
-            </style>
-        """, unsafe_allow_html=True)
+    # --- TEMA GLOBAL: Minimalista técnico ---
+    st.markdown("""
+    <style>
+    /* Tipografía y espaciado base */
+    [data-testid="stAppViewContainer"] { background: var(--color-background-tertiary); }
+    h1, h2, h3 { font-weight: 500 !important; letter-spacing: -0.01em; }
+    h1 { font-size: 1.4rem !important; }
+    h2 { font-size: 1.1rem !important; }
+    h3 { font-size: 1rem !important; }
+
+    /* Sidebar limpio */
+    [data-testid="stSidebar"] {
+        background: var(--color-background-primary) !important;
+        border-right: 0.5px solid var(--color-border-tertiary);
+    }
+    [data-testid="stSidebar"] .stRadio label {
+        font-size: 13px !important;
+        padding: 5px 0 !important;
+    }
+    [data-testid="stSidebar"] .stMetric { padding: 6px 0 !important; }
+    [data-testid="stSidebar"] .stMetric label { font-size: 11px !important; }
+    [data-testid="stSidebar"] .stMetric [data-testid="stMetricValue"] { font-size: 18px !important; }
+
+    /* Métricas compactas */
+    [data-testid="stMetricValue"] { font-size: 22px !important; font-weight: 500 !important; }
+    [data-testid="stMetricLabel"] { font-size: 11px !important; font-weight: 500 !important;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--color-text-secondary) !important; }
+
+    /* Tabs más limpios */
+    button[data-baseweb="tab"] {
+        font-size: 12px !important; font-weight: 500 !important;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        padding: 8px 16px !important;
+    }
+
+    /* Botones */
+    .stButton > button {
+        font-size: 12px !important; font-weight: 500 !important;
+        border-radius: 6px !important;
+        text-transform: uppercase; letter-spacing: 0.04em;
+        padding: 6px 16px !important;
+    }
+
+    /* Inputs y selects */
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div,
+    .stNumberInput > div > div > input,
+    textarea {
+        font-size: 13px !important;
+        border-radius: 6px !important;
+    }
+
+    /* Expanders */
+    details summary { font-size: 12px !important; font-weight: 500 !important;
+        text-transform: uppercase; letter-spacing: 0.04em; }
+
+    /* Divisores */
+    hr { border-color: var(--color-border-tertiary) !important; border-width: 0.5px !important; }
+
+    /* Captions */
+    .stCaption { font-size: 11px !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
     # --- SIDEBAR ---
     df_log = leer_vuelos()
@@ -607,57 +661,46 @@ def main_app():
 
     if st.session_state.get("rango_anterior", rango) != rango:
         st.balloons()
-        st.success(f"¡Subiste de rango! Ahora eres **{rango}**")
+        st.success(f"Nuevo rango desbloqueado: **{rango}**")
     st.session_state["rango_anterior"] = rango
 
-    # Rango
-    st.sidebar.markdown(f"## {icono} {rango}")
-    st.sidebar.metric("Horas de vuelo", f"{horas_act:.1f} h",
-                      delta=f"faltan {horas_next - horas_act:.0f} h" if horas_next != 1000 else "Rango máximo",
+    st.sidebar.markdown(f"**{icono} {rango}**")
+    st.sidebar.metric("Flight hours", f"{horas_act:.1f} h",
+                      delta=f"{horas_next - horas_act:.0f} h to next rank" if horas_next != 1000 else "Max rank reached",
                       delta_color="off")
     if horas_next != 1000:
         st.sidebar.progress(min(horas_act / horas_next, 1.0))
 
-    st.sidebar.divider()
-
-    # Último vuelo
     if not df_log.empty:
         ultimo = df_log.iloc[-1]
-        orig = ultimo.get('Origen', '?')
-        dest = ultimo.get('Destino', '?')
-        tiempo = ultimo.get('Tiempo_Vuelo_Horas', '--')
-        fpm = ultimo.get('Landing_Rate_FPM', 0)
-        st.sidebar.markdown("**✈️ Último vuelo**")
-        st.sidebar.markdown(f"`{orig}` → `{dest}`")
-        col_t, col_f = st.sidebar.columns(2)
-        col_t.metric("Tiempo", str(tiempo), label_visibility="collapsed")
-        col_f.metric("Toque", f"{fpm} fpm", label_visibility="collapsed")
-        st.sidebar.caption(f"⏱ {tiempo}  ·  🛬 {fpm} fpm")
+        st.sidebar.divider()
+        st.sidebar.caption("LAST FLIGHT")
+        st.sidebar.markdown(
+            f"**{ultimo.get('Origen','?')} → {ultimo.get('Destino','?')}**  \n"
+            f"{ultimo.get('Tiempo_Vuelo_Horas','--')} · {ultimo.get('Landing_Rate_FPM',0)} fpm"
+        )
 
-    st.sidebar.divider()
-
-    # Balance económico
     df_eco_sb = leer_economia()
-    st.sidebar.markdown("**💰 Balance aerolínea**")
+    st.sidebar.divider()
+    st.sidebar.caption("AIRLINE BALANCE")
     if not df_eco_sb.empty and "Resultado_USD" in df_eco_sb.columns:
-        balance = float(df_eco_sb["Resultado_USD"].sum())
-        ultimo_res = float(df_eco_sb.iloc[-1].get("Resultado_USD", 0))
-        n_vuelos = len(df_eco_sb)
-        delta_txt = f"Último vuelo: ${ultimo_res:,.0f}"
+        balance   = float(df_eco_sb["Resultado_USD"].sum())
+        ult_res   = float(df_eco_sb.iloc[-1].get("Resultado_USD", 0))
+        n_eco     = len(df_eco_sb)
         st.sidebar.metric(
-            label=f"{n_vuelos} vuelos registrados",
+            label=f"{n_eco} flights logged",
             value=f"${balance:,.0f}",
-            delta=delta_txt,
-            delta_color="normal" if ultimo_res >= 0 else "inverse"
+            delta=f"Last flight: ${ult_res:,.0f}",
+            delta_color="normal" if ult_res >= 0 else "inverse"
         )
     else:
-        st.sidebar.caption("Sin vuelos económicos aún.")
+        st.sidebar.markdown("*No economic data yet.*")
 
-    st.sidebar.markdown("---")
-    menu = st.sidebar.radio("EFB Menu", [
-        "📋 Registro de Vuelo", "✅ Checklists", "🗺️ Mapa",
-        "☁️ Clima (METAR/TAF)", "🎲 Vuelos Aleatorios", "🧰 Herramientas",
-        "💰 Economía", "📊 Estadísticas", "⚙️ Configuración"
+    st.sidebar.divider()
+    menu = st.sidebar.radio("", [
+        "📋 Logbook", "✅ Checklists", "🗺️ Route Map",
+        "☁️ Weather (METAR/TAF)", "🎲 Random Flights", "🧰 Tools",
+        "💰 Economics", "📊 Statistics", "⚙️ Settings"
     ])
 
     _, AVIONES_DINAMICOS = leer_configuracion()
@@ -665,8 +708,8 @@ def main_app():
     # =========================================================
     # REGISTRO DE VUELO
     # =========================================================
-    if menu == "📋 Registro de Vuelo":
-        st.header("📋 Bitácora de Vuelo")
+    if menu == "📋 Logbook":
+        st.header("📋 Flight Logbook")
         st.caption("Completá los datos del despacho. El tiempo de vuelo se calculará de forma automática bloque a bloque.")
 
         if 'form_data' not in st.session_state:
@@ -678,7 +721,7 @@ def main_app():
         with st.expander("📥 Importar desde SimBrief", expanded=False):
             c1, c2 = st.columns([3, 1])
             sb_user = c1.text_input("Usuario SimBrief")
-            if c2.button("Importar OFP"):
+            if c2.button("Import OFP"):
                 datos, err = obtener_datos_simbrief(sb_user)
                 if datos:
                     st.session_state.form_data.update(datos)
@@ -705,7 +748,7 @@ def main_app():
         with st.form("vuelo", clear_on_submit=False):
             st.markdown("#### ✈️ Identificación del Vuelo")
             c1, c2, c3, c4 = st.columns(4)
-            fecha = c1.date_input("📅 Fecha", value=datetime.now())
+            fecha = c1.date_input("📅 Date", value=datetime.now())
             num = c2.text_input("🔢 N° Vuelo / Callsign", value=st.session_state.form_data["no_vuelo"])
             modelo = c3.selectbox("🛩️ Equipo", AVIONES_DINAMICOS) 
             l_rate = c4.number_input("📉 Toque (fpm)", value=0, step=10, help="Ej: -150")
@@ -736,15 +779,15 @@ def main_app():
             notas = st.text_area("Notas / Observaciones", height=68, placeholder="Combustible restante, METAR en ruta, incidencias...")
 
             st.markdown("---")
-            submitted = st.form_submit_button("💾 Guardar en Bitácora")
+            submitted = st.form_submit_button("💾 Save to Logbook")
 
         if submitted:
             aero_final = st.session_state["aerolinea_seleccionada"]
 
             if not origen or len(origen) < 3:
-                st.error("❌ Ingresá un código ICAO de origen válido.")
+                st.error("❌ Ingresa un código ICAO de origen válido.")
             elif not destino or len(destino) < 3:
-                st.error("❌ Ingresá un código ICAO de destino válido.")
+                st.error("❌ Ingresa un código ICAO de destino válido.")
             elif st.session_state["nueva_aerolinea_modo"] and not aero_final:
                 st.error("❌ Escribí el nombre de la nueva aerolínea.")
             else:
@@ -764,14 +807,14 @@ def main_app():
                         st.success(f"✅ Vuelo {origen}→{destino}{dist_txt} guardado. Tiempo registrado: **{tiempo_hhmm}**.")
                         st.session_state["nueva_aerolinea_modo"] = False
                     else:
-                        st.error("Error al guardar en la nube.")
+                        st.error("Error saving en la nube.")
 
     # =========================================================
     # CHECKLISTS
     # =========================================================
     elif menu == "✅ Checklists":
-        st.header("✅ Listas de Chequeo")
-        avion = st.selectbox("Avión:", list(CHECKLISTS_DB.keys()))
+        st.header("✅ Checklists")
+        avion = st.selectbox("Aircraft:", list(CHECKLISTS_DB.keys()))
         data = CHECKLISTS_DB[avion]
         c1, c2 = st.columns(2)
         items = list(data.items())
@@ -786,7 +829,7 @@ def main_app():
     # =========================================================
     # MAPA Y EXPLORADOR DE RUTAS
     # =========================================================
-    elif menu == "🗺️ Mapa":
+    elif menu == "🗺️ Route Map":
         from folium.plugins import Terminator
         st.header("🗺️ Explorador Global de Rutas")
         df = leer_vuelos()
@@ -805,9 +848,9 @@ def main_app():
             c_ctrl, c_mapa = st.columns([1, 3.5])
             with c_ctrl:
                 st.subheader("🎛️ Filtros")
-                aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
+                aeros = ["All airlines"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["All airlines"]
                 filtro_aero = st.selectbox("🏢 Aerolínea", aeros)
-                aviones = ["Todos"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["Todos"]
+                aviones = ["All aircraft"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["All aircraft"]
                 filtro_avion = st.selectbox("🛩️ Avión", aviones)
                 
                 st.divider()
@@ -818,8 +861,8 @@ def main_app():
                 mostrar_noche = st.toggle("🌓 Línea Día/Noche", value=False)
                 
                 df_mapa = df.copy()
-                if filtro_aero != "Todas": df_mapa = df_mapa[df_mapa['Aerolinea'] == filtro_aero]
-                if filtro_avion != "Todos": df_mapa = df_mapa[df_mapa['Modelo_Avion'] == filtro_avion]
+                if filtro_aero != "All airlines": df_mapa = df_mapa[df_mapa['Aerolinea'] == filtro_aero]
+                if filtro_avion != "All aircraft": df_mapa = df_mapa[df_mapa['Modelo_Avion'] == filtro_avion]
                 
                 st.divider()
                 dist_total = pd.to_numeric(df_mapa['Distancia_NM'], errors='coerce').fillna(0).sum() if 'Distancia_NM' in df_mapa.columns else 0
@@ -857,12 +900,12 @@ def main_app():
                                     aeropuertos_dibujados.add(c_code)
 
                 st_folium(m, width="100%", height=650, returned_objects=[]) 
-        else: st.info("No hay vuelos registrados en el mapa.")
+        else: st.info("No flights logged yet en el mapa.")
 
     # =========================================================
     # CLIMA Y NOTAMS (RESTAURADO)
     # =========================================================
-    elif menu == "☁️ Clima (METAR/TAF)":
+    elif menu == "☁️ Weather (METAR/TAF)":
         st.header("🌤️ Centro Meteorológico y Alertas")
         tab1, tab2, tab3, tab4 = st.tabs(["🔍 Buscar Clima", "📡 TAF Comentado", "🎓 Referencia", "⚠️ NOTAMs"])
 
@@ -891,7 +934,7 @@ def main_app():
                         # --- GRILLA PRINCIPAL (Solo números cortos) ---
                         campos = [
                             ("📍 Estación",    dec.get('estacion',    '—')),
-                            ("🕐 Fecha/Hora",  dec.get('fecha_hora',  '—')),
+                            ("🕐 Date/Hora",  dec.get('fecha_hora',  '—')),
                             ("💨 Viento",      dec.get('viento',      '—')),
                             ("👁️ Visibilidad", dec.get('visibilidad', '—')),
                             ("🌡️ Temperatura", dec.get('temperatura', '—')),
@@ -936,7 +979,7 @@ def main_app():
                         st.info("TAF no disponible para este aeropuerto.")
                         
             elif buscar:
-                st.warning("Ingresá un código ICAO primero.")
+                st.warning("Ingresa un código ICAO primero.")
 
             st.divider()
             st.subheader("🔧 Decodificador manual")
@@ -1094,7 +1137,7 @@ def main_app():
     # =========================================================
     # VUELOS ALEATORIOS 
     # =========================================================
-    elif menu == "🎲 Vuelos Aleatorios":
+    elif menu == "🎲 Random Flights":
         import random
         st.header("🎲 Centro de Rutas")
         st.caption("Tu base de datos personal de vuelos reales.")
@@ -1106,12 +1149,12 @@ def main_app():
             if df_rutas.empty: st.info("Base vacía. Añadí vuelos en la pestaña siguiente.")
             else:
                 c1, c2, c3 = st.columns([2, 2, 1])
-                cat_sel = c1.selectbox("Categoría", ["Cualquiera"] + sorted(df_rutas["Categoria"].unique().tolist()))
-                avion_sel = c2.selectbox("Avión", ["Cualquier avión"] + sorted(df_rutas["Avion"].unique().tolist()))
+                cat_sel = c1.selectbox("Categoría", ["Any"] + sorted(df_rutas["Category"].unique().tolist()))
+                avion_sel = c2.selectbox("Aircraft", ["Cualquier avión"] + sorted(df_rutas["Aircraft"].unique().tolist()))
                 if c3.button("🎲 Sortear", use_container_width=True) or "vuelo_sorteado" not in st.session_state:
                     pool = df_rutas.copy()
-                    if cat_sel != "Cualquiera": pool = pool[pool["Categoria"] == cat_sel]
-                    if avion_sel != "Cualquier avión": pool = pool[pool["Avion"] == avion_sel]
+                    if cat_sel != "Any": pool = pool[pool["Category"] == cat_sel]
+                    if avion_sel != "Cualquier avión": pool = pool[pool["Aircraft"] == avion_sel]
                     st.session_state["vuelo_sorteado"] = pool.sample(1).iloc[0].to_dict() if not pool.empty else None
                         
                 v = st.session_state.get("vuelo_sorteado")
@@ -1131,7 +1174,7 @@ def main_app():
                             try: h_f = float(v['Duracion_Est'].split("h")[0].replace("~","")) + float(v['Duracion_Est'].split("h")[1].replace("m",""))/60
                             except: pass
                         st.session_state.form_data = {"origen": v["Origen"], "destino": v["Destino"], "ruta": "", "no_vuelo": v["Callsign"], "puerta_salida": "", "puerta_llegada": ""}
-                        st.session_state["aerolinea_seleccionada"] = v["Aerolinea"]
+                        st.session_state["aerolinea_seleccionada"] = v["Airline"]
                         st.success(f"Vuelo {v['Callsign']} enviado al Registro.")
 
         with tab_add:
@@ -1140,17 +1183,17 @@ def main_app():
                 orig = ca1.text_input("Origen (ICAO)").upper().strip()
                 dest = ca2.text_input("Destino (ICAO)").upper().strip()
                 ca3, ca4 = st.columns(2)
-                aero = ca3.text_input("Aerolínea")
+                aero = ca3.text_input("Airline")
                 callsign = ca4.text_input("Callsign")
                 ca5, ca6 = st.columns(2)
-                avion = ca5.selectbox("Avión", AVIONES_DINAMICOS)
+                avion = ca5.selectbox("Aircraft", AVIONES_DINAMICOS)
                 es_esp = ca6.toggle("🌟 Ruta Especial (Ignorar auto-categoría)")
 
                 guardar = st.form_submit_button("💾 Guardar en Base")
 
                 if guardar:
                     if len(orig) != 4 or len(dest) != 4 or not callsign: 
-                        st.warning("Por favor, completá Origen, Destino y Callsign con datos válidos.")
+                        st.warning("Por favor, completa Origen, Destino y Callsign con datos válidos.")
                     else:
                         co = obtener_coords(orig)
                         cd = obtener_coords(dest)
@@ -1169,7 +1212,7 @@ def main_app():
                         if guardar_ruta_gs([orig, dest, aero, callsign, avion, cat, d_nm, d_str]): 
                             st.success("✅ Ruta añadida con éxito a tu base de vuelos.")
                         else:
-                            st.error("Error al guardar en la base de datos.")
+                            st.error("Error saving en la base de datos.")
 
         with tab_admin:
             if df_rutas.empty: st.write("Base vacía.")
@@ -1180,7 +1223,7 @@ def main_app():
                             ec1, ec2, ec3 = st.columns(3)
                             n_o, n_d, n_c = ec1.text_input("Orig", row['Origen']).upper(), ec2.text_input("Dest", row['Destino']).upper(), ec3.text_input("Call", row['Callsign'])
                             ec4, ec5, ec6 = st.columns(3)
-                            n_a, n_av, n_cat = ec4.text_input("Aero", row['Aerolinea']), ec5.text_input("Avión", row['Avion']), ec6.text_input("Cat", row['Categoria'])
+                            n_a, n_av, n_cat = ec4.text_input("Aero", row['Aerolinea']), ec5.text_input("Aircraft", row['Avion']), ec6.text_input("Cat", row['Categoria'])
                             b1, b2 = st.columns(2)
                             if b1.form_submit_button("💾 Guardar"):
                                 d_nm, d_str = row['Distancia_NM'], row['Duracion_Est']
@@ -1200,8 +1243,8 @@ def main_app():
     # =========================================================
     # HERRAMIENTAS
     # =========================================================
-    elif menu == "🧰 Herramientas":
-        st.header("🧰 Herramientas")
+    elif menu == "🧰 Tools":
+        st.header("🧰 Tools")
         t1, t2, t3, t4 = st.tabs(["🌬️ Viento Cruzado", "📉 Calc. Descenso", "🔄 Conversor", "⛽ Combustible"])
         with t1:
             wc1, wc2, wc3 = st.columns(3)
@@ -1210,7 +1253,7 @@ def main_app():
             rwy = wc3.number_input("Rumbo Pista (°)", 0, 360, 0)
             if ws > 0:
                 cw, hw = calcular_viento_cruzado(wd, ws, rwy)
-                st.metric("Viento Cruzado", f"{cw:.1f} kt")
+                st.metric("Crosswind", f"{cw:.1f} kt")
         with t2:
             c_alt, c_tgt = st.columns(2)
             alt_act = c_alt.number_input("Alt Actual (ft)", value=35000, step=1000)
@@ -1233,11 +1276,11 @@ def main_app():
     # =========================================================
     # ECONOMIA
     # =========================================================
-    elif menu == "💰 Economía":
+    elif menu == "💰 Economics":
         import random as _rnd
 
-        st.header("💰 Economía de Vuelo")
-        st.caption("Calculá cuánto ganaste (o perdiste) en cada vuelo, basándote en pasajeros reales de SimBrief y costos GSX.")
+        st.header("💰 Flight Economics")
+        st.caption("Calcula cuánto ganaste (o perdiste) en cada vuelo, basándote en pasajeros reales de SimBrief y costos GSX.")
 
         # Precios de referencia por NM (basados en tarifas reales promedio)
         def precio_referencia_por_nm(dist_nm):
@@ -1252,13 +1295,13 @@ def main_app():
 
         # ── TAB 1: NUEVO VUELO ────────────────────────────────────────────
         with tab_nuevo:
-            st.subheader("Calcular resultado del vuelo")
+            st.subheader("Calculate flight result")
 
             # Importar desde SimBrief — pre-pobla session_state ANTES de renderizar los widgets
             with st.expander("📥 Importar datos de SimBrief (carga y combustible)", expanded=True):
                 sb_col1, sb_col2 = st.columns([3, 1])
                 sb_user_eco = sb_col1.text_input("Usuario SimBrief", key="sb_eco_user")
-                if sb_col2.button("Importar", key="import_eco"):
+                if sb_col2.button("Import", key="import_eco"):
                     datos_sb, err_sb = obtener_datos_simbrief(sb_user_eco)
                     if datos_sb:
                         st.session_state["eco_sb"] = datos_sb
@@ -1281,16 +1324,16 @@ def main_app():
             # ── SECCIÓN 1: Datos del vuelo ────────────────────────────────
             st.markdown("#### Datos del vuelo")
             e1, e2, e3, e4 = st.columns(4)
-            eco_fecha   = e1.date_input("Fecha", value=datetime.now(), key="eco_fecha")
+            eco_fecha   = e1.date_input("Date", value=datetime.now(), key="eco_fecha")
 
             # Usar session_state como valor inicial — si SimBrief los llenó, aparecen ya
             if "eco_num"  not in st.session_state: st.session_state["eco_num"]  = ""
             if "eco_orig" not in st.session_state: st.session_state["eco_orig"] = ""
             if "eco_dest" not in st.session_state: st.session_state["eco_dest"] = ""
 
-            eco_vuelo   = e2.text_input("N° Vuelo",     key="eco_num")
-            eco_origen  = e3.text_input("Origen ICAO",  key="eco_orig").strip().upper()
-            eco_destino = e4.text_input("Destino ICAO", key="eco_dest").strip().upper()
+            eco_vuelo   = e2.text_input("Flight No.",     key="eco_num")
+            eco_origen  = e3.text_input("Origin ICAO",  key="eco_orig").strip().upper()
+            eco_destino = e4.text_input("Destination ICAO", key="eco_dest").strip().upper()
 
             # FIX 1: Aerolínea con desplegable igual que en Registro de Vuelo
             st.markdown("##### Aerolínea")
@@ -1314,12 +1357,12 @@ def main_app():
                     idx_aero = lista_aero_eco.index(st.session_state["eco_aero_sel"]) \
                         if st.session_state["eco_aero_sel"] in lista_aero_eco else 0
                     st.session_state["eco_aero_sel"] = st.selectbox(
-                        "Aerolínea", lista_aero_eco, index=idx_aero,
+                        "Airline", lista_aero_eco, index=idx_aero,
                         key="eco_aero_dd", label_visibility="collapsed")
             eco_aero = st.session_state["eco_aero_sel"]
 
             _, aviones_eco = leer_configuracion()
-            eco_avion = st.selectbox("Avión", aviones_eco, key="eco_avion")
+            eco_avion = st.selectbox("Aircraft", aviones_eco, key="eco_avion")
 
             # Distancia automática
             dist_eco = 0
@@ -1465,7 +1508,7 @@ def main_app():
 
             # ── SECCIÓN 4: COSTOS GSX Pro 4.0 (FIX 4) ───────────────────
             st.markdown("#### Costos operacionales — GSX Pro 4.0 Invoice")
-            st.caption("Ingresá exactamente lo que figura en cada recibo de GSX. Handling y Passenger Bus se pueden desglosar por aeropuerto.")
+            st.caption("Ingresa exactamente lo que figura en cada recibo de GSX. Handling y Passenger Bus se pueden desglosar por aeropuerto.")
 
             fuel_sb = sb.get("fuel_kg", 0)
             fuel_ref = round(fuel_sb * 0.80) if fuel_sb > 0 else 0
@@ -1541,10 +1584,10 @@ def main_app():
             res_cols = st.columns(4)
             res_cols[0].metric("Ingresos PAX",   f"${ingreso_pax:,.0f}")
             res_cols[1].metric("Ingresos Cargo",  f"${ingreso_cargo:,.0f}")
-            res_cols[2].metric("Costos Totales",  f"${costo_total:,.0f}")
+            res_cols[2].metric("Total costs",  f"${costo_total:,.0f}")
             res_cols[3].metric(
-                "RESULTADO", f"${resultado:,.0f}",
-                delta="Ganancia" if resultado >= 0 else "Perdida",
+                "RESULT", f"${resultado:,.0f}",
+                delta="Profit" if resultado >= 0 else "Loss",
                 delta_color="normal" if resultado >= 0 else "inverse"
             )
 
@@ -1555,26 +1598,33 @@ def main_app():
                     text=f"Margen: {margen:.1f}% | Ingresos: ${ingreso_total:,.0f} | Costos: ${costo_total:,.0f}"
                 )
 
-            with st.expander("Ver detalle completo"):
-                dc1, dc2 = st.columns(2)
-                with dc1:
-                    st.markdown("**Ingresos**")
-                    st.write(f"- Premium/First: {eco_pax_prem} pax x ${precio_prem_u} = **${ingreso_prem:,.0f}**")
-                    st.write(f"- Business: {eco_pax_bus} pax x ${precio_bus_u} = **${ingreso_bus:,.0f}**")
-                    st.write(f"- Economy: {eco_pax_eco} pax x ${precio_eco_u} = **${ingreso_eco:,.0f}**")
-                    st.write(f"- Carga: {eco_cargo:,} kg x ${precio_cargo_u}/kg = **${ingreso_cargo:,.0f}**")
-                    st.markdown(f"**Total: ${ingreso_total:,.0f}**")
-                with dc2:
-                    st.markdown("**Costos GSX**")
-                    st.write(f"- Fuel: **${gsx_fuel:,}**")
-                    st.write(f"- Handling {eco_origen}: ${hand_sal:,} | {eco_destino}: ${hand_lle:,} = **${costo_handling:,}**")
-                    st.write(f"- Pax Bus {eco_origen}: ${bus_sal:,} | {eco_destino}: ${bus_lle:,} = **${costo_pax_bus:,}**")
-                    if costo_catering > 0:
-                        st.write(f"- Catering: **${costo_catering:,}**")
-                    st.markdown(f"**Total: ${costo_total:,}**")
+            with st.expander("View full breakdown"):
+                st.markdown("##### Ingresos")
+                ic = st.columns(4)
+                ic[0].metric("Premium/First", f"${ingreso_prem:,.0f}",
+                             f"{eco_pax_prem} pax × ${precio_prem_u}")
+                ic[1].metric("Business",      f"${ingreso_bus:,.0f}",
+                             f"{eco_pax_bus} pax × ${precio_bus_u}")
+                ic[2].metric("Economy",       f"${ingreso_eco:,.0f}",
+                             f"{eco_pax_eco} pax × ${precio_eco_u}")
+                ic[3].metric("Carga",         f"${ingreso_cargo:,.0f}",
+                             f"{eco_cargo:,} kg × ${precio_cargo_u}/kg")
+
+                st.markdown("##### Costos GSX")
+                cc = st.columns(4)
+                cc[0].metric("Fuel",          f"${gsx_fuel:,}")
+                cc[1].metric(f"Handling {eco_origen or 'SAL'}",  f"${hand_sal:,}")
+                cc[2].metric(f"Handling {eco_destino or 'LLE'}", f"${hand_lle:,}")
+                cc[3].metric("Handling total", f"${costo_handling:,}")
+                cc2 = st.columns(4)
+                cc2[0].metric(f"Pax Bus {eco_origen or 'SAL'}",  f"${bus_sal:,}")
+                cc2[1].metric(f"Pax Bus {eco_destino or 'LLE'}", f"${bus_lle:,}")
+                cc2[2].metric("Pax Bus total", f"${costo_pax_bus:,}")
+                if costo_catering > 0:
+                    cc2[3].metric("Catering", f"${costo_catering:,}")
 
             eco_notas = st.text_input(
-                "Notas (opcional)",
+                "Notes (optional)",
                 placeholder="Ej: Vuelo con delay, clima adverso, pasajeros VIP...",
                 key="eco_notas"
             )
@@ -1598,7 +1648,7 @@ def main_app():
                         costo_catering, round(costo_total),
                         round(resultado), eco_notas
                     ]
-                    with st.spinner("Guardando en hoja Economia..."):
+                    with st.spinner("Saving en hoja Economia..."):
                         ok = guardar_economia_gs(row)
                     if ok:
                         st.success(
@@ -1608,13 +1658,13 @@ def main_app():
                         )
                         st.session_state.pop("eco_sb", None)
                     else:
-                        st.error("Error al guardar.")
+                        st.error("Error saving.")
 
         # ── TAB 2: HISTORIAL ─────────────────────────────────────────────
         with tab_historial:
             df_eco = leer_economia()
             if df_eco.empty:
-                st.info("No hay vuelos guardados aún. Calculá el resultado de tu primer vuelo.")
+                st.info("No hay vuelos guardados aún. Calcula el resultado de tu primer vuelo.")
             else:
                 # Resumen rápido al tope
                 total_ganado = df_eco["Resultado_USD"].sum()
@@ -1622,9 +1672,9 @@ def main_app():
                 peor_vuelo   = df_eco.loc[df_eco["Resultado_USD"].idxmin()]
 
                 k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Vuelos registrados", len(df_eco))
+                k1.metric("Flights logged", len(df_eco))
                 k2.metric("Resultado acumulado", f"${total_ganado:,.0f}",
-                           delta="Ganancia" if total_ganado >= 0 else "Pérdida",
+                           delta="Profit" if total_ganado >= 0 else "Pérdida",
                            delta_color="normal" if total_ganado >= 0 else "inverse")
                 k3.metric("Mejor vuelo", f"${mejor_vuelo['Resultado_USD']:,.0f}",
                            f"{mejor_vuelo.get('Origen','')}>{mejor_vuelo.get('Destino','')}")
@@ -1634,7 +1684,7 @@ def main_app():
                 st.divider()
 
                 # Buscador
-                busq_eco = st.text_input("Buscar...", placeholder="ICAO, vuelo, aerolínea", key="busq_eco")
+                busq_eco = st.text_input("Search...", placeholder="ICAO, vuelo, aerolínea", key="busq_eco")
                 df_eco_d = df_eco.copy()
                 if busq_eco:
                     mask = df_eco_d.astype(str).apply(
@@ -1650,7 +1700,7 @@ def main_app():
                     with st.container():
                         h1, h2, h3, h4, h5, h6 = st.columns([1.5, 1.5, 2, 1.5, 1.5, 0.8])
                         h1.markdown(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
-                        h2.caption(f"{row.get('Fecha','')} | {row.get('Vuelo','')}")
+                        h2.caption(f"{row.get('Date','')} | {row.get('Vuelo','')}")
                         h3.caption(f"{row.get('Aerolinea','')} | {row.get('Avion','')}")
                         h4.caption(f"{pax_disp} pax | {int(row.get('Cargo_kg',0) or 0)} kg")
                         h5.markdown(f"{icono} **${res_vuelo:,.0f}**")
@@ -1668,7 +1718,7 @@ def main_app():
                                 st.session_state.pop(f"confirm_del_eco_{i}", None)
                                 st.rerun()
 
-                        with st.expander("Ver detalle", expanded=False):
+                        with st.expander("View breakdown", expanded=False):
                             d1, d2, d3 = st.columns(3)
                             # Ingresos — nombres nuevos con fallback a viejos
                             ing_pax   = float(row.get("Ingreso_Premium_USD", 0) or 0) + \
@@ -1695,21 +1745,21 @@ def main_app():
                             d3.metric("Total Costos",    f"${cst_tot:,.0f}")
                             if pbus_tot: st.caption(f"Passenger Bus: ${pbus_tot:,.0f}")
                             if catering: st.caption(f"Catering: ${catering:,.0f}")
-                            if row.get("Notas"): st.caption(f"Notas: {row['Notas']}")
+                            if row.get("Notes"): st.caption(f"Notas: {row['Notas']}")
                     st.divider()
 
                 # Exportar
                 if st.button("📥 Exportar historial CSV"):
-                    st.download_button("Descargar", df_eco.to_csv(index=False).encode('utf-8'),
+                    st.download_button("Download", df_eco.to_csv(index=False).encode('utf-8'),
                                        "economia_vuelos.csv", "text/csv")
 
         # ── TAB 3: DASHBOARD ECONÓMICO ───────────────────────────────────
         with tab_dashboard:
             df_eco2 = leer_economia()
             if df_eco2.empty:
-                st.info("Guardá al menos un vuelo para ver el dashboard.")
+                st.info("Guarda al menos un vuelo para ver el dashboard.")
             else:
-                st.subheader("Dashboard Económico")
+                st.subheader("Economics Dashboard")
 
                 # Normalizar columnas con fallback a nombres viejos
                 def col_sum(df, *cols):
@@ -1727,11 +1777,11 @@ def main_app():
                 # KPIs globales
                 k1, k2, k3, k4, k5 = st.columns(5)
                 k1.metric("Vuelos",          len(df_eco2))
-                k2.metric("Ingresos totales",f"${total_ingresos:,.0f}")
-                k3.metric("Costos totales",  f"${total_costos:,.0f}")
-                k4.metric("Resultado neto",  f"${total_res:,.0f}",
+                k2.metric("Total revenue",f"${total_ingresos:,.0f}")
+                k3.metric("Total costs",  f"${total_costos:,.0f}")
+                k4.metric("Net result",  f"${total_res:,.0f}",
                            delta_color="normal" if total_res >= 0 else "inverse")
-                k5.metric("Total pasajeros", f"{int(total_pax):,}")
+                k5.metric("Total pax", f"{int(total_pax):,}")
 
                 st.markdown("---")
 
@@ -1745,7 +1795,7 @@ def main_app():
                         color="Resultado_USD",
                         color_continuous_scale=["red", "yellow", "green"],
                         title="Resultado por vuelo (USD)",
-                        labels={"x": "Ruta", "Resultado_USD": "Resultado"}
+                        labels={"x": "Route", "Resultado_USD": "Resultado"}
                     )
                     fig_res.update_layout(showlegend=False, coloraxis_showscale=False)
                     st.plotly_chart(fig_res, use_container_width=True)
@@ -1785,16 +1835,16 @@ def main_app():
                         st.plotly_chart(fig_pie, use_container_width=True)
 
                 # Evolución acumulada
-                if 'Fecha' in df_eco2.columns:
+                if 'Date' in df_eco2.columns:
                     try:
-                        df_eco2['Fecha_dt'] = pd.to_datetime(df_eco2['Fecha'], errors='coerce')
-                        df_sorted = df_eco2.dropna(subset=['Fecha_dt']).sort_values('Fecha_dt')
+                        df_eco2['Date_dt'] = pd.to_datetime(df_eco2['Date'], errors='coerce')
+                        df_sorted = df_eco2.dropna(subset=['Date_dt']).sort_values('Date_dt')
                         df_sorted['Resultado_Acum'] = df_sorted['Resultado_USD'].cumsum()
                         fig_acum = px.area(
                             df_sorted,
-                            x='Fecha_dt', y='Resultado_Acum',
+                            x='Date_dt', y='Resultado_Acum',
                             title="Resultado acumulado en el tiempo",
-                            labels={"Fecha_dt": "Fecha", "Resultado_Acum": "USD acumulados"},
+                            labels={"Date_dt": "Date", "Resultado_Acum": "USD acumulados"},
                             color_discrete_sequence=["#2ecc71"]
                         )
                         st.plotly_chart(fig_acum, use_container_width=True)
@@ -1804,8 +1854,8 @@ def main_app():
     # =========================================================
     # ESTADÍSTICAS (RESTAURADAS CON GRÁFICO DE BARRAS)
     # =========================================================
-    elif menu == "📊 Estadísticas":
-        st.header("📊 Dashboard de Rendimiento")
+    elif menu == "📊 Statistics":
+        st.header("📊 Performance Dashboard")
         df = leer_vuelos()
         if not df.empty:
             if 'Landing_Rate_FPM' in df.columns:
@@ -1853,13 +1903,13 @@ def main_app():
             with st.expander("Ver / Buscar en historial", expanded=True):
                 
                 f1, f2, f3 = st.columns(3)
-                search_text = f1.text_input("🔍 Buscar (ICAO, Fecha...)", "")
+                search_text = f1.text_input("🔍 Buscar (ICAO, Date...)", "")
                 
-                aeros = ["Todas"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["Todas"]
-                filtro_aero_hist = f2.selectbox("Aerolínea", aeros)
+                aeros = ["All airlines"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["All airlines"]
+                filtro_aero_hist = f2.selectbox("Airline", aeros)
                 
-                aviones = ["Todos"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["Todos"]
-                filtro_avion_hist = f3.selectbox("Avión", aviones)
+                aviones = ["All aircraft"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["All aircraft"]
+                filtro_avion_hist = f3.selectbox("Aircraft", aviones)
                 
                 st.divider()
 
@@ -1870,10 +1920,10 @@ def main_app():
                     mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_text_lower)).any(axis=1)
                     df_display = df_display[mask]
                 
-                if filtro_aero_hist != "Todas":
+                if filtro_aero_hist != "All airlines":
                     df_display = df_display[df_display['Aerolinea'] == filtro_aero_hist]
                     
-                if filtro_avion_hist != "Todos":
+                if filtro_avion_hist != "All aircraft":
                     df_display = df_display[df_display['Modelo_Avion'] == filtro_avion_hist]
 
                 if df_display.empty:
@@ -1885,7 +1935,7 @@ def main_app():
                             cols = st.columns([1.5, 1.5, 2.5, 2, 2, 1])
                             
                             cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
-                            cols[1].write(f"{row.get('Fecha','')}")
+                            cols[1].write(f"{row.get('Date','')}")
                             
                             # Aerolínea + N° de Vuelo en negrita
                             aero = row.get('Aerolinea', '')
@@ -1910,10 +1960,10 @@ def main_app():
                                 st.session_state[f"confirm_del_{i}"] = True
 
                             if st.session_state.get(f"confirm_del_{i}", False):
-                                st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Fecha','')}?")
+                                st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Date','')}?")
                                 c_yes, c_no = st.columns(2)
                                 if c_yes.button("✅ Sí, eliminar", key=f"yes_{i}"):
-                                    with st.spinner("Eliminando..."):
+                                    with st.spinner("Deleting..."):
                                         ok = eliminar_vuelo_gs(i)
                                     if ok:
                                         st.success("Vuelo eliminado.")
@@ -1924,12 +1974,12 @@ def main_app():
                                     st.rerun()
                         st.divider()
         else:
-            st.info("Registra tu primer vuelo para ver las estadísticas.")
+            st.info("Log your first flight to see statistics.")
 
     # =========================================================
     # CONFIGURACIÓN
     # =========================================================
-    elif menu == "⚙️ Configuración":
+    elif menu == "⚙️ Settings":
         st.header("⚙️ Configuración Base de Datos")
         aeros_db, aviones_db = leer_configuracion()
         c1, c2 = st.columns(2)
@@ -1940,8 +1990,8 @@ def main_app():
             if st.button("➕ Añadir Aerolínea") and na:
                 agregar_item_config("Aerolineas", na.strip())
                 st.rerun()
-            ae = st.selectbox("Eliminar", ["Seleccionar..."] + aeros_db)
-            if st.button("🗑️ Eliminar Aero") and ae != "Seleccionar...":
+            ae = st.selectbox("Delete", ["Select..."] + aeros_db)
+            if st.button("🗑️ Eliminar Aero") and ae != "Select...":
                 eliminar_item_config("Aerolineas", ae)
                 st.rerun()
 
@@ -1951,8 +2001,8 @@ def main_app():
             if st.button("➕ Añadir Avión") and nav:
                 agregar_item_config("Aviones", nav.strip())
                 st.rerun()
-            ave = st.selectbox("Eliminar Avión", ["Seleccionar..."] + aviones_db)
-            if st.button("🗑️ Eliminar Avión") and ave != "Seleccionar...":
+            ave = st.selectbox("Eliminar Avión", ["Select..."] + aviones_db)
+            if st.button("🗑️ Eliminar Avión") and ave != "Select...":
                 eliminar_item_config("Aviones", ave)
                 st.rerun()
 
