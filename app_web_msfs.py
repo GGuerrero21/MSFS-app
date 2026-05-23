@@ -1865,114 +1865,138 @@ def main_app():
             if 'Distancia_NM' in df.columns:
                 df['Distancia_NM'] = pd.to_numeric(df['Distancia_NM'], errors='coerce').fillna(0)
 
-            # Restauramos los 5 KPIs
-            kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
             total_vuelos = len(df)
             total_horas = df['Tiempo_Vuelo_Horas'].apply(parse_tiempo_horas).sum()
             promedio_landing = df['Landing_Rate_FPM'].mean() if 'Landing_Rate_FPM' in df.columns else 0
             total_nm = df['Distancia_NM'].sum()
             avion_fav = df['Modelo_Avion'].mode()[0] if 'Modelo_Avion' in df.columns and not df['Modelo_Avion'].mode().empty else "N/A"
 
-            kpi1.metric("📦 Vuelos", f"{total_vuelos}")
-            kpi2.metric("⏱️ Horas", f"{total_horas:.1f} h")
-            kpi3.metric("🌍 Distancia", f"{total_nm:,.0f} NM")
-            kpi4.metric("🛬 Toque Prom.", f"{promedio_landing:.0f} fpm")
-            kpi5.metric("✈️ Avión Fav.", avion_fav)
+            # KPI grid — estilo Bloomberg
+            st.markdown(f"""
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px;">
+  {"".join(f'''<div style="background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);
+    border-radius:8px;padding:14px 16px;">
+    <div style="font-size:10px;font-weight:500;color:var(--color-text-secondary);
+      text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">{lbl}</div>
+    <div style="font-size:22px;font-weight:500;color:var(--color-text-primary);
+      font-variant-numeric:tabular-nums;">{val}</div>
+  </div>''' for lbl, val in [
+      ("Flights", str(total_vuelos)),
+      ("Flight hours", f"{total_horas:.1f} h"),
+      ("Distance", f"{total_nm:,.0f} NM"),
+      ("Avg. landing", f"{promedio_landing:.0f} fpm"),
+      ("Favorite aircraft", avion_fav[:18] + ("…" if len(avion_fav) > 18 else "")),
+  ])}
+</div>
+""", unsafe_allow_html=True)
 
-            st.markdown("---")
-
-            # RESTAURADO: Gráfico de Flota Utilizada
+            # Chart
             if 'Modelo_Avion' in df.columns:
-                st.subheader("✈️ Flota Utilizada")
                 data_aviones = df['Modelo_Avion'].value_counts().reset_index()
-                data_aviones.columns = ['Modelo', 'Vuelos']
-                fig_bar = px.bar(data_aviones, x='Vuelos', y='Modelo', orientation='h',
-                                 text='Vuelos', color='Vuelos')
-                fig_bar.update_layout(showlegend=False)
+                data_aviones.columns = ['Modelo', 'Flights']
+                fig_bar = px.bar(data_aviones, x='Flights', y='Modelo', orientation='h',
+                                 text='Flights', color='Flights',
+                                 color_continuous_scale='Blues')
+                fig_bar.update_layout(
+                    showlegend=False, coloraxis_showscale=False,
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(size=12), margin=dict(l=0, r=0, t=24, b=0),
+                    title=dict(text="Fleet usage", font=dict(size=13, color='gray'))
+                )
+                fig_bar.update_traces(textposition='outside')
                 st.plotly_chart(fig_bar, use_container_width=True)
 
             st.markdown("---")
-            st.subheader("📋 Historial Completo")
 
+            # Filters
             col_exp1, col_exp2 = st.columns([3, 1])
             with col_exp2:
-                if st.button("📥 Exportar CSV"):
+                if st.button("Export CSV"):
                     csv = df.to_csv(index=False).encode('utf-8')
-                    st.download_button("Descargar CSV", csv, "vuelos.csv", "text/csv")
+                    st.download_button("Download", csv, "flights.csv", "text/csv")
 
-            with st.expander("Ver / Buscar en historial", expanded=True):
-                
-                f1, f2, f3 = st.columns(3)
-                search_text = f1.text_input("🔍 Buscar (ICAO, Date...)", "")
-                
-                aeros = ["All airlines"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["All airlines"]
-                filtro_aero_hist = f2.selectbox("Airline", aeros)
-                
-                aviones = ["All aircraft"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["All aircraft"]
-                filtro_avion_hist = f3.selectbox("Aircraft", aviones)
-                
-                st.divider()
+            f1, f2, f3 = st.columns(3)
+            search_text = f1.text_input("Search (ICAO, date...)", "")
+            aeros = ["All airlines"] + sorted(df['Aerolinea'].dropna().astype(str).unique().tolist()) if 'Aerolinea' in df.columns else ["All airlines"]
+            filtro_aero_hist = f2.selectbox("Airline", aeros)
+            aviones = ["All aircraft"] + sorted(df['Modelo_Avion'].dropna().astype(str).unique().tolist()) if 'Modelo_Avion' in df.columns else ["All aircraft"]
+            filtro_avion_hist = f3.selectbox("Aircraft", aviones)
 
-                df_display = df.copy()
-                
-                if search_text:
-                    search_text_lower = search_text.lower()
-                    mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_text_lower)).any(axis=1)
-                    df_display = df_display[mask]
-                
-                if filtro_aero_hist != "All airlines":
-                    df_display = df_display[df_display['Aerolinea'] == filtro_aero_hist]
-                    
-                if filtro_avion_hist != "All aircraft":
-                    df_display = df_display[df_display['Modelo_Avion'] == filtro_avion_hist]
+            df_display = df.copy()
+            if search_text:
+                mask = df_display.astype(str).apply(lambda x: x.str.lower().str.contains(search_text.lower())).any(axis=1)
+                df_display = df_display[mask]
+            if filtro_aero_hist != "All airlines":
+                df_display = df_display[df_display['Aerolinea'] == filtro_aero_hist]
+            if filtro_avion_hist != "All aircraft":
+                df_display = df_display[df_display['Modelo_Avion'] == filtro_avion_hist]
 
-                if df_display.empty:
-                    st.info("No se encontraron vuelos que coincidan con la búsqueda.")
-                else:
-                    for i, row in df_display.iterrows():
-                        with st.container():
-                            # Ajustamos las proporciones para darle más espacio a la info combinada
-                            cols = st.columns([1.5, 1.5, 2.5, 2, 2, 1])
-                            
-                            cols[0].write(f"**{row.get('Origen','?')} → {row.get('Destino','?')}**")
-                            cols[1].write(f"{row.get('Date','')}")
-                            
-                            # Aerolínea + N° de Vuelo en negrita
-                            aero = row.get('Aerolinea', '')
-                            num = row.get('Num_Vuelo', '')
-                            texto_vuelo = f"{aero} **{num}**" if num else aero
-                            cols[2].write(texto_vuelo)
-                            
-                            cols[3].write(f"{row.get('Modelo_Avion','')}")
-                            
-                            # Tiempo + Toque de Aterrizaje (FPM)
-                            tiempo = row.get('Tiempo_Vuelo_Horas', '')
-                            try:
-                                fpm = int(float(row.get('Landing_Rate_FPM', 0)))
-                                fpm_str = f"🛬 {fpm} fpm"
-                            except:
-                                fpm_str = "🛬 -- fpm"
-                                
-                            cols[4].write(f"⏱️ {tiempo}h | {fpm_str}")
-                            
-                            # Botón de eliminar
-                            if cols[5].button("🗑️", key=f"del_{i}", help="Eliminar este vuelo"):
-                                st.session_state[f"confirm_del_{i}"] = True
+            if df_display.empty:
+                st.info("No flights match the search.")
+            else:
+                # Tabla estilo Bloomberg
+                header_html = """
+<div style="overflow-x:auto;margin-top:12px;">
+<table style="width:100%;border-collapse:collapse;font-size:12px;">
+<thead><tr style="border-bottom:0.5px solid var(--color-border-tertiary);">
+  <th style="text-align:left;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Route</th>
+  <th style="text-align:left;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Date</th>
+  <th style="text-align:left;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Airline</th>
+  <th style="text-align:left;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Aircraft</th>
+  <th style="text-align:right;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Time</th>
+  <th style="text-align:right;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">Landing</th>
+  <th style="text-align:right;padding:6px 10px;font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.05em;">NM</th>
+  <th style="padding:6px 10px;"></th>
+</tr></thead><tbody>"""
+                rows_html = ""
+                for i, row in df_display.iterrows():
+                    fpm_val = row.get('Landing_Rate_FPM', 0)
+                    try:
+                        fpm_num = float(fpm_val)
+                        fpm_color = "var(--color-text-success)" if fpm_num > -300 else "var(--color-text-danger)"
+                        fpm_str = f"{fpm_num:.0f} fpm"
+                    except Exception:
+                        fpm_color = "var(--color-text-secondary)"
+                        fpm_str = str(fpm_val)
 
-                            if st.session_state.get(f"confirm_del_{i}", False):
-                                st.warning(f"¿Eliminar vuelo {row.get('Origen','?')}→{row.get('Destino','?')} del {row.get('Date','')}?")
-                                c_yes, c_no = st.columns(2)
-                                if c_yes.button("✅ Sí, eliminar", key=f"yes_{i}"):
-                                    with st.spinner("Deleting..."):
-                                        ok = eliminar_vuelo_gs(i)
-                                    if ok:
-                                        st.success("Vuelo eliminado.")
-                                        st.session_state.pop(f"confirm_del_{i}", None)
-                                        st.rerun()
-                                if c_no.button("❌ Cancelar", key=f"no_{i}"):
-                                    st.session_state.pop(f"confirm_del_{i}", None)
-                                    st.rerun()
-                        st.divider()
+                    orig = row.get('Origen', '?')
+                    dest = row.get('Destino', '?')
+                    dist = row.get('Distancia_NM', '')
+                    try:
+                        dist_str = f"{int(float(dist)):,}"
+                    except Exception:
+                        dist_str = str(dist)
+
+                    rows_html += f"""<tr style="border-bottom:0.5px solid var(--color-border-tertiary);">
+  <td style="padding:9px 10px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:.03em;">
+    {orig} <span style="color:var(--color-text-tertiary);font-weight:400;">→</span> {dest}</td>
+  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Date','')}</td>
+  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Aerolinea','')}</td>
+  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Modelo_Avion','')}</td>
+  <td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;">{row.get('Tiempo_Vuelo_Horas','')}</td>
+  <td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;color:{fpm_color};">{fpm_str}</td>
+  <td style="padding:9px 10px;text-align:right;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;">{dist_str}</td>
+  <td style="padding:9px 10px;text-align:right;" id="del_cell_{i}"></td>
+</tr>"""
+                st.markdown(header_html + rows_html + "</tbody></table></div>", unsafe_allow_html=True)
+
+                # Delete buttons (Streamlit widgets can't go inside st.markdown HTML)
+                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
+                for i, row in df_display.iterrows():
+                    col_info, col_del = st.columns([10, 1])
+                    if col_del.button("🗑", key=f"del_{i}", help=f"Delete {row.get('Origen','?')}→{row.get('Destino','?')}"):
+                        st.session_state[f"confirm_del_{i}"] = True
+                    if st.session_state.get(f"confirm_del_{i}"):
+                        col_info.warning(f"Delete {row.get('Origen','?')}→{row.get('Destino','?')} on {row.get('Date','')}?")
+                        cy, cn = col_info.columns(2)
+                        if cy.button("Yes, delete", key=f"yes_{i}"):
+                            if eliminar_vuelo_gs(i):
+                                st.session_state.pop(f"confirm_del_{i}", None)
+                                st.rerun()
+                        if cn.button("Cancel", key=f"no_{i}"):
+                            st.session_state.pop(f"confirm_del_{i}", None)
+                            st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.info("Log your first flight to see statistics.")
 
