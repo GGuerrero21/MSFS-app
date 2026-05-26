@@ -115,34 +115,62 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 def conectar_google_sheets():
     try:
         if "gcp_service_account" not in st.secrets:
-            st.error("⚠️ No se encontraron los secretos de Google Cloud en st.secrets.")
+            st.error("No Google Cloud secrets found in st.secrets.")
             return None
         creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
         client = gspread.authorize(creds)
         sheet = client.open("FlightLogbook").sheet1
+        # Only insert headers if sheet is completely empty — never overwrite existing data
         existing = sheet.get_all_values()
         if not existing:
             sheet.append_row(SHEET_HEADERS)
-        elif existing[0] != SHEET_HEADERS:
-            sheet.insert_row(SHEET_HEADERS, 1)
         return sheet
     except Exception as e:
-        st.error(f"Error conectando a Bitácora principal: {e}")
+        st.error(f"Error connecting to Flight Logbook: {e}")
         return None
 
 @st.cache_data(ttl=30)
 def leer_vuelos():
     sheet = conectar_google_sheets()
-    if sheet:
-        try:
-            data = sheet.get_all_records()
-            df = pd.DataFrame(data)
-            if df.empty: return pd.DataFrame()
-            for col in ['Distancia_NM', 'Landing_Rate_FPM']:
-                if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            return df
-        except Exception: return pd.DataFrame()
-    return pd.DataFrame()
+    if not sheet:
+        return pd.DataFrame()
+    try:
+        all_values = sheet.get_all_values()
+        if not all_values or len(all_values) < 2:
+            return pd.DataFrame()
+        headers = all_values[0]
+        rows = [r for r in all_values[1:] if any(str(c).strip() for c in r)]
+        if not rows:
+            return pd.DataFrame()
+        n = len(headers)
+        rows = [r[:n] + [''] * max(0, n - len(r)) for r in rows]
+        df = pd.DataFrame(rows, columns=headers)
+
+        # Normalize column names — sheet may use Spanish or English headers
+        col_map = {}
+        for col in df.columns:
+            cl = col.lower().strip()
+            if cl in ["fecha", "date"]:                col_map[col] = "Date"
+            elif cl in ["origen", "origin"]:           col_map[col] = "Origen"
+            elif cl in ["destino", "destination"]:     col_map[col] = "Destino"
+            elif cl in ["aerolinea", "aerolínea", "airline"]: col_map[col] = "Aerolinea"
+            elif cl in ["num_vuelo", "flight_no", "num vuelo"]: col_map[col] = "Num_Vuelo"
+            elif cl in ["modelo_avion", "modelo avion", "aircraft", "avion"]: col_map[col] = "Modelo_Avion"
+            elif cl in ["tiempo_vuelo_horas", "flight_time", "tiempo vuelo horas"]: col_map[col] = "Tiempo_Vuelo_Horas"
+            elif cl in ["distancia_nm", "distance_nm"]: col_map[col] = "Distancia_NM"
+            elif cl in ["landing_rate_fpm", "landing rate fpm", "toque_fpm"]: col_map[col] = "Landing_Rate_FPM"
+            elif cl in ["hora_out", "block_out"]:      col_map[col] = "Hora_OUT"
+            elif cl in ["hora_in", "block_in"]:        col_map[col] = "Hora_IN"
+        if col_map:
+            df = df.rename(columns=col_map)
+
+        for c in ['Distancia_NM', 'Landing_Rate_FPM']:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+        return df
+    except Exception as e:
+        st.error(f"Error reading logbook: {e}")
+        return pd.DataFrame()
 
 def guardar_vuelo_gs(row_data):
     sheet = conectar_google_sheets()
@@ -1139,212 +1167,106 @@ def main_app():
     # =========================================================
     elif menu == "🎲 Random Flights":
         import random
-        st.header("🎲 Random Flights")
+        st.header("🎲 Centro de Rutas")
+        st.caption("Tu base de datos personal de vuelos reales.")
 
-        tab_gen, tab_add, tab_admin = st.tabs(["🎲 Generate", "➕ Add flight", "✏️ Manage"])
+        tab_gen, tab_add, tab_admin = st.tabs(["🎲 Generar Vuelo", "➕ Añadir a la Base", "✏️ Administrar Base"])
         df_rutas = leer_rutas_aleatorias()
 
-        # Normalizar nombres de columnas — el sheet puede tener variantes
-        def get_col(row, *names, default=""):
-            for n in names:
-                if n in row and str(row[n]).strip():
-                    return str(row[n]).strip()
-            return default
-
         with tab_gen:
-            if df_rutas.empty:
-                st.info("Database is empty. Add flights in the next tab.")
+            if df_rutas.empty: st.info("Base vacía. Añadí vuelos en la pestaña siguiente.")
             else:
-                # Detectar nombre real de columnas
-                cols_avail = df_rutas.columns.tolist()
-                col_cat  = next((c for c in cols_avail if c.lower() in ["category","categoria","categoría"]), None)
-                col_av   = next((c for c in cols_avail if c.lower() in ["aircraft","avion","avión"]), None)
-                col_aero = next((c for c in cols_avail if c.lower() in ["airline","aerolinea","aerolínea"]), None)
-                col_orig = next((c for c in cols_avail if c.lower() in ["origen","origin"]), None)
-                col_dest = next((c for c in cols_avail if c.lower() in ["destino","destination"]), None)
-                col_call = next((c for c in cols_avail if c.lower() in ["callsign"]), None)
-                col_dist = next((c for c in cols_avail if c.lower() in ["distancia_nm","distance_nm","distancia"]), None)
-                col_dur  = next((c for c in cols_avail if c.lower() in ["duracion_est","duration","duracion"]), None)
-
-                f1, f2, f3 = st.columns([2, 2, 1])
-                cats = ["Any"] + (sorted(df_rutas[col_cat].dropna().unique().tolist()) if col_cat else [])
-                avs  = ["Any aircraft"] + (sorted(df_rutas[col_av].dropna().unique().tolist()) if col_av else [])
-                cat_sel  = f1.selectbox("Category", cats)
-                avion_sel = f2.selectbox("Aircraft", avs)
-                generar  = f3.button("🎲 Generate", use_container_width=True)
-
-                if generar or "vuelo_sorteado" not in st.session_state:
+                c1, c2, c3 = st.columns([2, 2, 1])
+                cat_sel = c1.selectbox("Categoría", ["Any"] + sorted(df_rutas["Category"].unique().tolist()))
+                avion_sel = c2.selectbox("Aircraft", ["Cualquier avión"] + sorted(df_rutas["Aircraft"].unique().tolist()))
+                if c3.button("🎲 Sortear", use_container_width=True) or "vuelo_sorteado" not in st.session_state:
                     pool = df_rutas.copy()
-                    if cat_sel != "Any" and col_cat:
-                        pool = pool[pool[col_cat] == cat_sel]
-                    if avion_sel != "Any aircraft" and col_av:
-                        pool = pool[pool[col_av] == avion_sel]
+                    if cat_sel != "Any": pool = pool[pool["Category"] == cat_sel]
+                    if avion_sel != "Cualquier avión": pool = pool[pool["Aircraft"] == avion_sel]
                     st.session_state["vuelo_sorteado"] = pool.sample(1).iloc[0].to_dict() if not pool.empty else None
-
+                        
                 v = st.session_state.get("vuelo_sorteado")
                 if v:
-                    orig  = get_col(v, "Origen", "Origin", "origen")
-                    dest  = get_col(v, "Destino", "Destination", "destino")
-                    aero  = get_col(v, "Aerolinea", "Airline", "aerolínea", "Aerolínea")
-                    call  = get_col(v, "Callsign", "callsign")
-                    avion = get_col(v, "Avion", "Aircraft", "Avión", "avión")
-                    dist  = get_col(v, "Distancia_NM", "Distance_NM", "Distancia")
-                    dur   = get_col(v, "Duracion_Est", "Duration", "Duración")
-                    cat_v = get_col(v, "Category", "Categoria", "Categoría")
-
-                    apt_o = AIRPORTS_DB.get(orig, {})
-                    apt_d = AIRPORTS_DB.get(dest, {})
-
                     st.divider()
+                    v1, v2 = st.columns([3, 2])
+                    with v1:
+                        st.markdown(f"## 🛫 {v['Origen']}  →  🛬 {v['Destino']}")
+                        st.metric(v['Aerolinea'], f"✈️ {v['Callsign']}") 
+                    with v2:
+                        st.metric("✈️ Avión", v['Avion'])
+                        st.metric("📏 Distancia / Tiempo", f"{v['Distancia_NM']} NM | {v['Duracion_Est']}")
 
-                    # Card de vuelo — estilo mockup
-                    st.markdown(f"""
-<div style="border:0.5px solid var(--color-border-tertiary);border-radius:8px;
-            padding:20px 24px;margin-bottom:16px;">
-  <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
-    <div>
-      <div style="font-size:28px;font-weight:500;letter-spacing:.04em;color:var(--color-text-primary);">
-        {orig} <span style="color:var(--color-text-tertiary);font-weight:400;">→</span> {dest}
-      </div>
-      <div style="font-size:13px;color:var(--color-text-secondary);margin-top:4px;">
-        {call} · {aero}
-      </div>
-      <div style="font-size:12px;color:var(--color-text-tertiary);margin-top:2px;">
-        {apt_o.get('name','')} → {apt_d.get('name','')}
-      </div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:13px;font-weight:500;color:var(--color-text-primary);">{avion}</div>
-      <div style="font-size:13px;color:var(--color-text-secondary);margin-top:4px;">{dist} NM · {dur}</div>
-      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px;">{cat_v}</div>
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-                    # Mapa
-                    c_orig = obtener_coords(orig)
-                    c_dest = obtener_coords(dest)
-                    if c_orig and c_dest:
-                        m_va = folium.Map(
-                            location=[(c_orig[0]+c_dest[0])/2, (c_orig[1]+c_dest[1])/2],
-                            zoom_start=3, tiles="CartoDB dark_matter")
-                        ruta_c = get_geodesic_path(c_orig[0], c_orig[1], c_dest[0], c_dest[1])
-                        folium.PolyLine(ruta_c, color="#555", weight=2, opacity=0.8).add_to(m_va)
-                        folium.Marker(c_orig, tooltip=orig,
-                                      icon=folium.Icon(color="green", icon="plane", prefix="fa")).add_to(m_va)
-                        folium.Marker(c_dest, tooltip=dest,
-                                      icon=folium.Icon(color="red", icon="flag-checkered", prefix="fa")).add_to(m_va)
-                        st_folium(m_va, width=900, height=360)
-
-                    if st.button("📋 Load into Logbook", use_container_width=True):
-                        st.session_state.form_data = {
-                            "origen": orig, "destino": dest,
-                            "ruta": "", "no_vuelo": call,
-                            "puerta_salida": "", "puerta_llegada": ""
-                        }
-                        st.session_state["aerolinea_seleccionada"] = aero
-                        st.success(f"Flight {call} loaded. Go to Logbook.")
+                    if st.button("📋 Cargar al Registro", use_container_width=True):
+                        h_f = 0.0
+                        if "h" in str(v['Duracion_Est']):
+                            try: h_f = float(v['Duracion_Est'].split("h")[0].replace("~","")) + float(v['Duracion_Est'].split("h")[1].replace("m",""))/60
+                            except: pass
+                        st.session_state.form_data = {"origen": v["Origen"], "destino": v["Destino"], "ruta": "", "no_vuelo": v["Callsign"], "puerta_salida": "", "puerta_llegada": ""}
+                        st.session_state["aerolinea_seleccionada"] = v["Airline"]
+                        st.success(f"Vuelo {v['Callsign']} enviado al Registro.")
 
         with tab_add:
             with st.form("add_ruta"):
                 ca1, ca2 = st.columns(2)
-                orig_n = ca1.text_input("Origin (ICAO)").upper().strip()
-                dest_n = ca2.text_input("Destination (ICAO)").upper().strip()
+                orig = ca1.text_input("Origen (ICAO)").upper().strip()
+                dest = ca2.text_input("Destino (ICAO)").upper().strip()
                 ca3, ca4 = st.columns(2)
-                aero_n = ca3.text_input("Airline")
-                call_n = ca4.text_input("Callsign")
+                aero = ca3.text_input("Airline")
+                callsign = ca4.text_input("Callsign")
                 ca5, ca6 = st.columns(2)
-                _, avs_conf = leer_configuracion()
-                avion_n = ca5.selectbox("Aircraft", avs_conf)
-                es_esp  = ca6.toggle("Special route")
+                avion = ca5.selectbox("Aircraft", AVIONES_DINAMICOS)
+                es_esp = ca6.toggle("🌟 Ruta Especial (Ignorar auto-categoría)")
 
-                if st.form_submit_button("💾 Save to database"):
-                    if len(orig_n) != 4 or len(dest_n) != 4 or not call_n:
-                        st.warning("Please fill in Origin (4 chars), Destination (4 chars) and Callsign.")
+                guardar = st.form_submit_button("💾 Guardar en Base")
+
+                if guardar:
+                    if len(orig) != 4 or len(dest) != 4 or not callsign: 
+                        st.warning("Por favor, completa Origen, Destino y Callsign con datos válidos.")
                     else:
-                        co = obtener_coords(orig_n)
-                        cd = obtener_coords(dest_n)
-                        d_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1])) if co and cd else 0
-                        h_e  = (d_nm / 430) + 0.6 if d_nm > 0 else 0
-                        d_str = f"~{int(h_e)}h {int((h_e-int(h_e))*60):02d}m" if h_e > 0 else "--"
-                        if es_esp: cat_n = "Special"
-                        elif h_e < 2:  cat_n = "Short haul"
-                        elif h_e <= 6: cat_n = "Medium haul"
-                        else:          cat_n = "Long haul"
-                        if guardar_ruta_gs([orig_n, dest_n, aero_n, call_n, avion_n, cat_n, d_nm, d_str]):
-                            st.success(f"Flight {call_n} ({orig_n}→{dest_n}) saved.")
+                        co = obtener_coords(orig)
+                        cd = obtener_coords(dest)
+                        
+                        if not co or not cd:
+                            st.info(f"⚠️ Nota: Se guardó la ruta {orig}-{dest} para el generador, aunque sus coordenadas no estén en el mapa offline.")
+                        
+                        d_nm = 0
+                        if co and cd:
+                            d_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1]))
+                            
+                        h_e = (d_nm / 430) + 0.6 if d_nm > 0 else 0
+                        d_str = f"~{int(h_e)}h {int((h_e - int(h_e)) * 60):02d}m" if h_e > 0 else "0h 00m"
+                        cat = "Desafiante / Especial" if es_esp else ("Corto radio (< 2h)" if h_e > 0 and h_e < 2 else ("Medio radio (2-6h)" if h_e > 0 and h_e <= 6 else "Largo radio (> 6h)" if h_e > 0 else "Sin Distancia"))
+                        
+                        if guardar_ruta_gs([orig, dest, aero, callsign, avion, cat, d_nm, d_str]): 
+                            st.success("✅ Ruta añadida con éxito a tu base de vuelos.")
                         else:
-                            st.error("Error saving to database.")
+                            st.error("Error saving en la base de datos.")
 
         with tab_admin:
-            df_r2 = leer_rutas_aleatorias()
-            if df_r2.empty:
-                st.info("No flights in database.")
+            if df_rutas.empty: st.write("Base vacía.")
             else:
-                busq_r = st.text_input("Search...", placeholder="ICAO, callsign, airline", key="busq_rutas")
-                if busq_r:
-                    mask = df_r2.apply(lambda r: busq_r.upper() in str(r.values).upper(), axis=1)
-                    df_r2 = df_r2[mask]
-
-                for i, row in df_r2.iterrows():
-                    o_ = get_col(row, "Origen","Origin")
-                    d_ = get_col(row, "Destino","Destination")
-                    c_ = get_col(row, "Callsign")
-                    a_ = get_col(row, "Aerolinea","Airline")
-                    av_= get_col(row, "Avion","Aircraft")
-                    ca_= get_col(row, "Category","Categoria")
-                    di_= get_col(row, "Distancia_NM","Distance_NM")
-                    du_= get_col(row, "Duracion_Est","Duration")
-
-                    with st.container():
-                        h1, h2, h3, h4, he, hd = st.columns([2, 2.5, 2, 1.5, 0.7, 0.7])
-                        h1.markdown(f"**{o_} → {d_}**")
-                        h2.caption(f"{c_} · {a_}")
-                        h3.caption(f"{av_} · {ca_}")
-                        h4.caption(f"{di_} NM")
-                        if he.button("✏️", key=f"er_{i}"):
-                            st.session_state[f"editing_r_{i}"] = True
-                        if hd.button("🗑️", key=f"dr_{i}"):
-                            st.session_state[f"confirm_r_{i}"] = True
-
-                        if st.session_state.get(f"confirm_r_{i}"):
-                            st.warning(f"Delete {c_} ({o_}→{d_})?")
-                            cy, cn = st.columns(2)
-                            if cy.button("Yes", key=f"yr_{i}"):
-                                if eliminar_ruta_gs(i):
-                                    st.session_state.pop(f"confirm_r_{i}", None)
-                                    st.rerun()
-                            if cn.button("Cancel", key=f"nr_{i}"):
-                                st.session_state.pop(f"confirm_r_{i}", None)
+                for i, row in df_rutas.iterrows():
+                    with st.expander(f"✈️ {row['Aerolinea']} {row['Callsign']} | {row['Origen']} ➡️ {row['Destino']}"):
+                        with st.form(f"ef_{i}"):
+                            ec1, ec2, ec3 = st.columns(3)
+                            n_o, n_d, n_c = ec1.text_input("Orig", row['Origen']).upper(), ec2.text_input("Dest", row['Destino']).upper(), ec3.text_input("Call", row['Callsign'])
+                            ec4, ec5, ec6 = st.columns(3)
+                            n_a, n_av, n_cat = ec4.text_input("Aero", row['Aerolinea']), ec5.text_input("Aircraft", row['Avion']), ec6.text_input("Cat", row['Categoria'])
+                            b1, b2 = st.columns(2)
+                            if b1.form_submit_button("💾 Guardar"):
+                                d_nm, d_str = row['Distancia_NM'], row['Duracion_Est']
+                                if n_o != row['Origen'] or n_d != row['Destino']:
+                                    co, cd = obtener_coords(n_o), obtener_coords(n_d)
+                                    if co and cd:
+                                        d_nm = round(haversine_nm(co[0], co[1], cd[0], cd[1]))
+                                        h_e = (d_nm / 430) + 0.6
+                                        d_str = f"~{int(h_e)}h {int((h_e - int(h_e)) * 60):02d}m"
+                                        if n_cat != "Desafiante / Especial": n_cat = "Corto radio (< 2h)" if h_e < 2 else ("Medio radio (2-6h)" if h_e <= 6 else "Largo radio (> 6h)")
+                                actualizar_ruta_gs(i, [n_o, n_d, n_a, n_c, n_av, n_cat, d_nm, d_str])
                                 st.rerun()
-
-                        if st.session_state.get(f"editing_r_{i}"):
-                            with st.form(f"ef_{i}"):
-                                ec1, ec2, ec3 = st.columns(3)
-                                n_o = ec1.text_input("Origin",    value=o_).upper()
-                                n_d = ec2.text_input("Destination", value=d_).upper()
-                                n_c = ec3.text_input("Callsign",  value=c_)
-                                ec4, ec5, ec6 = st.columns(3)
-                                n_a = ec4.text_input("Airline",   value=a_)
-                                _, avs2 = leer_configuracion()
-                                av_i = avs2.index(av_) if av_ in avs2 else 0
-                                n_av= ec5.selectbox("Aircraft",   avs2, index=av_i)
-                                n_ca= ec6.text_input("Category",  value=ca_)
-                                cs_, cc_ = st.columns(2)
-                                if cs_.form_submit_button("💾 Save"):
-                                    co2 = obtener_coords(n_o)
-                                    cd2 = obtener_coords(n_d)
-                                    d_nm2 = round(haversine_nm(co2[0],co2[1],cd2[0],cd2[1])) if co2 and cd2 else int(di_ or 0)
-                                    h_e2  = (d_nm2/430)+0.6 if d_nm2>0 else 0
-                                    d_str2= f"~{int(h_e2)}h {int((h_e2-int(h_e2))*60):02d}m"
-                                    if actualizar_ruta_gs(i,[n_o,n_d,n_a,n_c,n_av,n_ca,d_nm2,d_str2]):
-                                        st.session_state.pop(f"editing_r_{i}", None)
-                                        st.rerun()
-                                if cc_.form_submit_button("Cancel"):
-                                    st.session_state.pop(f"editing_r_{i}", None)
-                                    st.rerun()
-                    st.divider()
+                            if b2.form_submit_button("🗑️ Borrar"):
+                                eliminar_ruta_gs(i)
+                                st.rerun()
 
     # =========================================================
     # HERRAMIENTAS
@@ -1502,14 +1424,22 @@ def main_app():
             pc1, pc2, pc3 = st.columns(3)
             pax_max = max(cap_total + 50, 600)
 
-            # Initialize only if not set — prevents reset on rerun
-            if "eco_pax_prem" not in st.session_state: st.session_state["eco_pax_prem"] = 0
-            if "eco_pax_bus"  not in st.session_state: st.session_state["eco_pax_bus"]  = 0
-            if "eco_pax_eco"  not in st.session_state: st.session_state["eco_pax_eco"]  = round(cap_total * 0.82)
+            eco_pax_prem = pc1.number_input(
+                "Premium (First)", value=0, min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_prem"
+            )
+            eco_pax_bus = pc2.number_input(
+                "Business", value=0, min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_bus"
+            )
 
-            eco_pax_prem = pc1.number_input("Premium (First)", min_value=0, max_value=int(pax_max), step=1, key="eco_pax_prem")
-            eco_pax_bus  = pc2.number_input("Business",        min_value=0, max_value=int(pax_max), step=1, key="eco_pax_bus")
-            eco_pax_eco  = pc3.number_input("Economy",         min_value=0, max_value=int(pax_max), step=1, key="eco_pax_eco")
+            total_otras = eco_pax_prem + eco_pax_bus
+            pax_eco_default = max(0, min(round(cap_total * 0.82) - total_otras, cap_total))
+            eco_pax_eco = pc3.number_input(
+                "Economy", value=int(pax_eco_default), min_value=0,
+                max_value=int(pax_max), step=1, key="eco_pax_eco"
+            )
+
             eco_pax_total = eco_pax_prem + eco_pax_bus + eco_pax_eco
 
             # Carga — sí viene de SimBrief
@@ -1581,16 +1511,19 @@ def main_app():
                 )
 
             pr1, pr2, pr3, pr4 = st.columns(4)
-            # Initialize prices with reference values only on first load
-            if "eco_p_eco"   not in st.session_state: st.session_state["eco_p_eco"]   = ref_eco
-            if "eco_p_bus"   not in st.session_state: st.session_state["eco_p_bus"]   = ref_bus
-            if "eco_p_prem"  not in st.session_state: st.session_state["eco_p_prem"]  = ref_prem
-            if "eco_p_cargo" not in st.session_state: st.session_state["eco_p_cargo"] = 2
-
-            precio_eco_u   = pr1.number_input("Economy (USD/pax)",      min_value=0, step=5,  key="eco_p_eco")
-            precio_bus_u   = pr2.number_input("Business (USD/pax)",     min_value=0, step=10, key="eco_p_bus")
-            precio_prem_u  = pr3.number_input("Premium/First (USD/pax)", min_value=0, step=10, key="eco_p_prem")
-            precio_cargo_u = pr4.number_input("Cargo (USD/kg)",          min_value=0, step=1,  key="eco_p_cargo")
+            precio_eco_u = pr1.number_input(
+                "Economy (USD/pax)", value=ref_eco, min_value=0, step=5, key="eco_p_eco"
+            )
+            precio_bus_u = pr2.number_input(
+                "Business (USD/pax)", value=ref_bus, min_value=0, step=10, key="eco_p_bus"
+            )
+            precio_prem_u = pr3.number_input(
+                "Premium/First (USD/pax)", value=ref_prem, min_value=0, step=10, key="eco_p_prem"
+            )
+            precio_cargo_u = pr4.number_input(
+                "Carga (USD/kg)", value=2, min_value=0, step=1, key="eco_p_cargo",
+                help="Tarifa media carga aérea: $1.5-3/kg segun ruta"
+            )
 
             ingreso_eco   = eco_pax_eco  * precio_eco_u
             ingreso_bus   = eco_pax_bus  * precio_bus_u
@@ -1626,20 +1559,37 @@ def main_app():
             # Handling: salida + llegada
             st.markdown("**Handling**")
             hc1, hc2 = st.columns(2)
-            for k in ["eco_hand_sal","eco_hand_lle","eco_bus_sal","eco_bus_lle","eco_cat_sal","eco_cat_lle"]:
-                if k not in st.session_state: st.session_state[k] = 0
+            hand_sal = hc1.number_input(
+                f"Handling salida ({eco_origen or 'ORIG'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_hand_sal"
+            )
+            hand_lle = hc2.number_input(
+                f"Handling llegada ({eco_destino or 'DEST'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_hand_lle"
+            )
 
-            hand_sal = hc1.number_input(f"Handling departure ({eco_origen or 'ORIG'}) (USD)", min_value=0, step=50, key="eco_hand_sal")
-            hand_lle = hc2.number_input(f"Handling arrival ({eco_destino or 'DEST'}) (USD)",  min_value=0, step=50, key="eco_hand_lle")
-
+            # Passenger Bus: salida + llegada
             st.markdown("**Passenger Bus**")
             bc1, bc2 = st.columns(2)
-            bus_sal = bc1.number_input(f"Pax bus departure ({eco_origen or 'ORIG'}) (USD)", min_value=0, step=50, key="eco_bus_sal")
-            bus_lle = bc2.number_input(f"Pax bus arrival ({eco_destino or 'DEST'}) (USD)",  min_value=0, step=50, key="eco_bus_lle")
+            bus_sal = bc1.number_input(
+                f"Passenger Bus salida ({eco_origen or 'ORIG'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_bus_sal"
+            )
+            bus_lle = bc2.number_input(
+                f"Passenger Bus llegada ({eco_destino or 'DEST'}) (USD)",
+                value=0, min_value=0, step=50, key="eco_bus_lle"
+            )
 
-            with st.expander("+ Catering (optional)"):
-                cat_sal = st.number_input(f"Catering departure ({eco_origen or 'ORIG'}) (USD)", min_value=0, step=50, key="eco_cat_sal")
-                cat_lle = st.number_input(f"Catering arrival ({eco_destino or 'DEST'}) (USD)",  min_value=0, step=50, key="eco_cat_lle")
+            # Catering (opcional, al final)
+            with st.expander("+ Catering (opcional)"):
+                cat_sal = st.number_input(
+                    f"Catering salida ({eco_origen or 'ORIG'}) (USD)",
+                    value=0, min_value=0, step=50, key="eco_cat_sal"
+                )
+                cat_lle = st.number_input(
+                    f"Catering llegada ({eco_destino or 'DEST'}) (USD)",
+                    value=0, min_value=0, step=50, key="eco_cat_lle"
+                )
 
             costo_handling  = hand_sal + hand_lle
             costo_pax_bus   = bus_sal  + bus_lle
@@ -2031,30 +1981,37 @@ def main_app():
                     fpm_val = row.get('Landing_Rate_FPM', 0)
                     try:
                         fpm_num = float(fpm_val)
-                        fpm_color = "var(--color-text-success)" if fpm_num > -300 else "var(--color-text-danger)"
+                        fpm_color = "#22c55e" if fpm_num > -300 else "#ef4444"
                         fpm_str = f"{fpm_num:.0f} fpm"
                     except Exception:
-                        fpm_color = "var(--color-text-secondary)"
+                        fpm_color = "gray"
                         fpm_str = str(fpm_val)
 
                     orig = row.get('Origen', '?')
                     dest = row.get('Destino', '?')
+                    # Date: try both normalized and original names
+                    date_val = row.get('Date', row.get('Fecha', ''))
+                    airline  = row.get('Aerolinea', row.get('Airline', ''))
+                    aircraft = row.get('Modelo_Avion', row.get('Aircraft', ''))
+                    tiempo   = row.get('Tiempo_Vuelo_Horas', '')
                     dist = row.get('Distancia_NM', '')
                     try:
-                        dist_str = f"{int(float(dist)):,}"
+                        dist_str = f"{int(float(dist)):,}" if float(dist) > 0 else "—"
                     except Exception:
-                        dist_str = str(dist)
+                        dist_str = "—"
 
                     rows_html += f"""<tr style="border-bottom:0.5px solid var(--color-border-tertiary);">
-  <td style="padding:9px 10px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:.03em;">
-    {orig} <span style="color:var(--color-text-tertiary);font-weight:400;">→</span> {dest}</td>
-  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Date','')}</td>
-  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Aerolinea','')}</td>
-  <td style="padding:9px 10px;color:var(--color-text-secondary);">{row.get('Modelo_Avion','')}</td>
-  <td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;">{row.get('Tiempo_Vuelo_Horas','')}</td>
-  <td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;color:{fpm_color};">{fpm_str}</td>
-  <td style="padding:9px 10px;text-align:right;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;">{dist_str}</td>
-  <td style="padding:9px 10px;text-align:right;" id="del_cell_{i}"></td>
+  <td style="padding:9px 10px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:.03em;white-space:nowrap;">
+    {orig} <span style="color:gray;font-weight:400;">→</span> {dest}</td>
+  <td style="padding:9px 10px;color:gray;white-space:nowrap;">{date_val}</td>
+  <td style="padding:9px 10px;color:gray;">{airline}</td>
+  <td style="padding:9px 10px;color:gray;">{aircraft}</td>
+  <td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;">{tiempo}</td>
+  <td style="padding:9px 10px;text-align:right;white-space:nowrap;">
+    <span style="background:{fpm_color}22;color:{fpm_color};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;">{fpm_str}</span>
+  </td>
+  <td style="padding:9px 10px;text-align:right;color:gray;font-variant-numeric:tabular-nums;">{dist_str}</td>
+  <td style="padding:9px 10px;"></td>
 </tr>"""
                 st.markdown(header_html + rows_html + "</tbody></table></div>", unsafe_allow_html=True)
 
