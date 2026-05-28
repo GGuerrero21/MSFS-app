@@ -2011,19 +2011,19 @@ def main_app():
     <span style="background:{fpm_color}22;color:{fpm_color};padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;">{fpm_str}</span>
   </td>
   <td style="padding:9px 10px;text-align:right;color:gray;font-variant-numeric:tabular-nums;">{dist_str}</td>
-  <td style="padding:9px 10px;"></td>
 </tr>"""
-                st.markdown(header_html + rows_html + "</tbody></table></div>", unsafe_allow_html=True)
+                # Render table without last empty column
+                st.markdown(header_html.replace('<th style="padding:6px 10px;"></th>', '') + rows_html + "</tbody></table></div>", unsafe_allow_html=True)
 
-                # Delete buttons (Streamlit widgets can't go inside st.markdown HTML)
-                st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
+                # Delete confirmations — shown only when triggered, no orphaned buttons
+                st.markdown("<div style='margin-top:4px;'>", unsafe_allow_html=True)
                 for i, row in df_display.iterrows():
-                    col_info, col_del = st.columns([10, 1])
-                    if col_del.button("🗑", key=f"del_{i}", help=f"Delete {row.get('Origen','?')}→{row.get('Destino','?')}"):
-                        st.session_state[f"confirm_del_{i}"] = True
                     if st.session_state.get(f"confirm_del_{i}"):
-                        col_info.warning(f"Delete {row.get('Origen','?')}→{row.get('Destino','?')} on {row.get('Date','')}?")
-                        cy, cn = col_info.columns(2)
+                        orig_d = row.get('Origen', '?')
+                        dest_d = row.get('Destino', '?')
+                        date_d = row.get('Date', row.get('Fecha', ''))
+                        st.warning(f"Delete **{orig_d} → {dest_d}** on {date_d}?")
+                        cy, cn = st.columns(2)
                         if cy.button("Yes, delete", key=f"yes_{i}"):
                             if eliminar_vuelo_gs(i):
                                 st.session_state.pop(f"confirm_del_{i}", None)
@@ -2031,6 +2031,23 @@ def main_app():
                         if cn.button("Cancel", key=f"no_{i}"):
                             st.session_state.pop(f"confirm_del_{i}", None)
                             st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+                # Single row of delete buttons aligned below table — one per flight, labeled
+                st.markdown("<div style='margin-top:8px;display:flex;flex-direction:column;gap:2px;'>", unsafe_allow_html=True)
+                for i, row in df_display.iterrows():
+                    orig_d = row.get('Origen', '?')
+                    dest_d = row.get('Destino', '?')
+                    date_d = row.get('Date', row.get('Fecha', ''))
+                    col_lbl, col_btn = st.columns([10, 1])
+                    col_lbl.markdown(
+                        f"<span style='font-size:11px;color:gray;line-height:32px;'>"
+                        f"{orig_d} → {dest_d} · {date_d}</span>",
+                        unsafe_allow_html=True
+                    )
+                    if col_btn.button("🗑", key=f"del_{i}"):
+                        st.session_state[f"confirm_del_{i}"] = True
+                        st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.info("Log your first flight to see statistics.")
