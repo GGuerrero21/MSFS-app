@@ -680,6 +680,85 @@ def main_app():
 
     /* Captions */
     .stCaption { font-size: 11px !important; }
+
+    /* ── INPUTS COMPACTOS ───────────────────────────────────── */
+    /* Altura reducida en text inputs */
+    .stTextInput > div > div > input {
+        font-size: 12px !important;
+        padding: 4px 8px !important;
+        height: 32px !important;
+    }
+    /* Number inputs */
+    .stNumberInput > div > div > input {
+        font-size: 12px !important;
+        padding: 4px 8px !important;
+        height: 32px !important;
+    }
+    /* Botones +/- del number input */
+    .stNumberInput button {
+        height: 32px !important;
+        padding: 0 8px !important;
+    }
+    /* Selectbox */
+    .stSelectbox > div > div {
+        font-size: 12px !important;
+        min-height: 32px !important;
+        padding: 2px 8px !important;
+    }
+    /* Time input */
+    .stTimeInput > div > div > input {
+        font-size: 12px !important;
+        padding: 4px 8px !important;
+        height: 32px !important;
+    }
+    /* Date input */
+    .stDateInput > div > div > input {
+        font-size: 12px !important;
+        padding: 4px 8px !important;
+        height: 32px !important;
+    }
+    /* Textarea más compacto */
+    textarea {
+        font-size: 12px !important;
+        padding: 6px 8px !important;
+        min-height: 60px !important;
+    }
+    /* Labels de los inputs */
+    .stTextInput label, .stNumberInput label, .stSelectbox label,
+    .stTimeInput label, .stDateInput label, .stTextArea label,
+    .stSlider label, .stToggle label {
+        font-size: 10px !important;
+        font-weight: 500 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+        margin-bottom: 2px !important;
+    }
+    /* Menos padding entre elementos del form */
+    .stTextInput, .stNumberInput, .stSelectbox,
+    .stTimeInput, .stDateInput, .stTextArea {
+        margin-bottom: 4px !important;
+    }
+    /* Toggle más pequeño */
+    .stToggle > label { font-size: 11px !important; }
+    /* Slider más compacto */
+    .stSlider > div { padding: 0 !important; }
+    /* Menos espacio entre columnas */
+    [data-testid="column"] { gap: 6px !important; }
+    /* Botones más compactos */
+    .stButton > button {
+        font-size: 11px !important;
+        padding: 4px 12px !important;
+        height: 30px !important;
+    }
+    /* Expanders más compactos */
+    details summary {
+        font-size: 11px !important;
+        padding: 6px 0 !important;
+    }
+    /* Reduce el padding general de los bloques */
+    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+        gap: 6px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
