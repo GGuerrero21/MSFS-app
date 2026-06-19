@@ -681,83 +681,100 @@ def main_app():
     /* Captions */
     .stCaption { font-size: 11px !important; }
 
-    /* ── INPUTS COMPACTOS ───────────────────────────────────── */
-    /* Altura reducida en text inputs */
-    .stTextInput > div > div > input {
+    /* ── INPUTS COMPACTOS — selectores reales de Streamlit ─── */
+
+    /* Text input */
+    div[data-baseweb="input"] { min-height: 32px !important; }
+    div[data-baseweb="input"] input {
         font-size: 12px !important;
-        padding: 4px 8px !important;
-        height: 32px !important;
-    }
-    /* Number inputs */
-    .stNumberInput > div > div > input {
-        font-size: 12px !important;
-        padding: 4px 8px !important;
-        height: 32px !important;
-    }
-    /* Botones +/- del number input */
-    .stNumberInput button {
-        height: 32px !important;
         padding: 0 8px !important;
-    }
-    /* Selectbox */
-    .stSelectbox > div > div {
-        font-size: 12px !important;
-        min-height: 32px !important;
-        padding: 2px 8px !important;
-    }
-    /* Time input */
-    .stTimeInput > div > div > input {
-        font-size: 12px !important;
-        padding: 4px 8px !important;
         height: 32px !important;
     }
-    /* Date input */
-    .stDateInput > div > div > input {
-        font-size: 12px !important;
-        padding: 4px 8px !important;
-        height: 32px !important;
-    }
-    /* Textarea más compacto */
-    textarea {
+
+    /* Textarea */
+    div[data-baseweb="textarea"] textarea {
         font-size: 12px !important;
         padding: 6px 8px !important;
-        min-height: 60px !important;
+        min-height: 56px !important;
     }
-    /* Labels de los inputs */
-    .stTextInput label, .stNumberInput label, .stSelectbox label,
-    .stTimeInput label, .stDateInput label, .stTextArea label,
-    .stSlider label, .stToggle label {
+
+    /* Select */
+    div[data-baseweb="select"] > div:first-child {
+        min-height: 32px !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-baseweb="select"] input { font-size: 12px !important; }
+    div[data-baseweb="select"] div[class*="ValueContainer"] {
+        font-size: 12px !important;
+        padding: 0 8px !important;
+    }
+
+    /* Number input */
+    div[data-baseweb="input"] > div { min-height: 32px !important; }
+    input[type="number"] {
+        height: 32px !important;
+        font-size: 12px !important;
+        padding: 0 6px !important;
+    }
+
+    /* Time / Date inputs */
+    input[type="time"], input[type="date"] {
+        height: 32px !important;
+        font-size: 12px !important;
+        padding: 0 6px !important;
+    }
+
+    /* Labels sobre inputs */
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stNumberInput"] label,
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stTextArea"] label,
+    div[data-testid="stTimeInput"] label,
+    div[data-testid="stDateInput"] label {
         font-size: 10px !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.05em !important;
-        margin-bottom: 2px !important;
+        letter-spacing: 0.06em !important;
+        padding-bottom: 2px !important;
+        margin-bottom: 0 !important;
     }
-    /* Menos padding entre elementos del form */
-    .stTextInput, .stNumberInput, .stSelectbox,
-    .stTimeInput, .stDateInput, .stTextArea {
-        margin-bottom: 4px !important;
+
+    /* Reducir espacio vertical entre widgets */
+    div[data-testid="stTextInput"],
+    div[data-testid="stNumberInput"],
+    div[data-testid="stSelectbox"],
+    div[data-testid="stTextArea"],
+    div[data-testid="stTimeInput"],
+    div[data-testid="stDateInput"] {
+        margin-bottom: 6px !important;
     }
-    /* Toggle más pequeño */
-    .stToggle > label { font-size: 11px !important; }
-    /* Slider más compacto */
-    .stSlider > div { padding: 0 !important; }
+
+    /* Botones más bajos */
+    div[data-testid="stButton"] button {
+        height: 32px !important;
+        font-size: 11px !important;
+        padding: 0 14px !important;
+        line-height: 32px !important;
+    }
+
     /* Menos espacio entre columnas */
-    [data-testid="column"] { gap: 6px !important; }
-    /* Botones más compactos */
-    .stButton > button {
-        font-size: 11px !important;
-        padding: 4px 12px !important;
-        height: 30px !important;
+    div[data-testid="stHorizontalBlock"] {
+        gap: 8px !important;
     }
-    /* Expanders más compactos */
-    details summary {
-        font-size: 11px !important;
-        padding: 6px 0 !important;
+
+    /* Menos padding en el contenido principal */
+    section[data-testid="stSidebar"] + div .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
     }
-    /* Reduce el padding general de los bloques */
-    [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
-        gap: 6px !important;
+
+    /* Expanders más apretados */
+    div[data-testid="stExpander"] details summary p {
+        font-size: 11px !important;
+    }
+    div[data-testid="stExpander"] details {
+        border: 0.5px solid var(--color-border-tertiary) !important;
     }
     </style>
     """, unsafe_allow_html=True)
